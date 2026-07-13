@@ -1,0 +1,33 @@
+add_library(ashen_core STATIC
+  src/Catalog.cpp
+  src/Simulation.cpp
+)
+
+target_include_directories(ashen_core
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(ashen_core PUBLIC cxx_std_20)
+
+if(MSVC)
+  target_compile_options(ashen_core PRIVATE /W4 /permissive- /EHsc)
+else()
+  target_compile_options(ashen_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(ashen_headless tools/headless_main.cpp)
+target_link_libraries(ashen_headless PRIVATE ashen_core)
+
+if(ASHEN_BUILD_TESTS AND BUILD_TESTING)
+  add_executable(ashen_core_tests tests/SimulationTests.cpp)
+  target_link_libraries(ashen_core_tests PRIVATE ashen_core)
+  add_test(NAME ashen_core_tests COMMAND ashen_core_tests)
+
+  if(MINGW)
+    get_filename_component(ASHEN_MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set_tests_properties(ashen_core_tests PROPERTIES
+      ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${ASHEN_MINGW_BIN_DIR}"
+    )
+  endif()
+endif()

@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Native C++ build output
+build
+out
+.vs
+CMakeUserPresets.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
