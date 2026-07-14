@@ -5,6 +5,8 @@
 #include "AshenEntityActor.generated.h"
 
 class UPointLightComponent;
+class USceneComponent;
+class UStaticMesh;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -29,11 +31,30 @@ public:
     EAshenEntityArchetype GetArchetype() const noexcept { return Archetype; }
 
 private:
+    UStaticMeshComponent* CreatePart(UStaticMesh* Mesh, const FVector& Location, const FVector& Scale,
+                                     const FRotator& Rotation, const FLinearColor& Color, float Roughness);
+    void BuildHumanVisuals(float Diameter);
+    void BuildMonsterVisuals(float Diameter);
+    void UpdateHealthDisplay(float HealthFraction);
+    bool IsBuilding() const noexcept;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen")
+    TObjectPtr<USceneComponent> SceneRoot;
+
     UPROPERTY(VisibleAnywhere, Category = "Ashen")
     TObjectPtr<UStaticMeshComponent> EntityMesh;
 
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> DetailMeshes;
+
     UPROPERTY(VisibleAnywhere, Category = "Ashen")
     TObjectPtr<UStaticMeshComponent> SelectionMarker;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen")
+    TObjectPtr<UStaticMeshComponent> HealthBack;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen")
+    TObjectPtr<UStaticMeshComponent> HealthFill;
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen")
     TObjectPtr<UPointLightComponent> FactionLight;
@@ -41,7 +62,11 @@ private:
     int32 EntityId = 0;
     uint8 OwnerIndex = 0;
     EAshenEntityArchetype Archetype = EAshenEntityArchetype::Worker;
-    float VisualHeight = 40.0f;
-    float HealthLightIntensity = 650.0f;
+    float VisualHeight = 80.0f;
+    float HealthBarWidth = 50.0f;
+    float LastHealthFraction = 1.0f;
+    float HealthLightIntensity = 380.0f;
+    FVector LastGroundPosition = FVector::ZeroVector;
+    bool bHasGroundPosition = false;
     bool bSelected = false;
 };

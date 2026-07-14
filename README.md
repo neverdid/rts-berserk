@@ -10,15 +10,16 @@ The repository now has three cooperating layers:
 
 - `unreal/AshenDominion/` is the playable Unreal Engine 5.8 C++ client. It currently provides an RTS
   camera, edge scrolling and zoom, click and drag-box selection, contextual move/attack/gather commands,
-  production hotkeys, HUD state, procedural 3D battlefield dressing, faction materials, and simulation
-  actor synchronization.
+  production hotkeys, a deployment menu, tactical minimap, a skirmish AI commander, two distinct
+  multi-part faction silhouettes, and a procedural dark-medieval battlefield with castles, forests,
+  roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
   Unreal compile these exact same sources, so gameplay rules do not fork between clients.
 - `src/` is the playable TypeScript/Three.js reference slice. It remains available for rapid interaction,
   balance, story, and visual experiments while Unreal reaches feature parity.
 
-The Unreal foundation is playable, but it is not being presented as a finished game. Story mission
-objectives, campaign presentation, AI personalities, construction, fog of war, matchmaking, and
+The Unreal skirmish foundation is playable, but it is not being presented as a finished game. Story
+mission objectives, campaign presentation, advanced AI personalities, construction, fog of war, matchmaking, and
 authoritative online PvP are later milestones. The deterministic core already supports story, skirmish,
 and PvP match modes so those features can share one ruleset.
 
@@ -30,7 +31,9 @@ Requirements:
 - Visual Studio with Game development with C++, MSVC, Windows SDK, and Visual Studio Tools for Unreal
 
 Open `unreal/AshenDominion/AshenDominion.uproject`. Let Unreal build the modules if prompted, then press
-Play. A first launch can spend extra time compiling shaders.
+Play. A first launch can spend extra time compiling shaders. The match remains frozen on the deployment
+screen; choose **Begin Skirmish** or press Enter/Space when ready. Opening workers automatically begin
+harvesting so the first minute can be spent learning the camera and production flow.
 
 Current controls:
 
@@ -39,6 +42,8 @@ Current controls:
 - WASD or screen edges: pan the war camera
 - Mouse wheel: smooth zoom
 - 1 and 2: train the primary or secondary unit from a selected producer
+- Enter or Space: begin the skirmish from the deployment screen
+- Escape: pause the simulation and return to the deployment screen
 
 Build the editor target directly from PowerShell when `UE_ROOT` points to the Unreal installation:
 

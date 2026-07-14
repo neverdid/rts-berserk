@@ -33,5 +33,5 @@ private:
 
     float ForwardInput = 0.0f;
     float RightInput = 0.0f;
-    float DesiredArmLength = 2250.0f;
+    float DesiredArmLength = 2850.0f;
 };
