@@ -47,6 +47,8 @@ void AAshenHUD::DrawHUD()
         return;
     }
 
+    DrawOrderRoute(*Controller, *Simulation);
+    DrawCommandFeedback(*Controller);
     DrawBattleHud(*Controller, *Simulation);
     DrawSelectionMarquee(*Controller);
     if (Simulation->IsMatchOver())
@@ -153,6 +155,7 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
     const float SafeHeight = bCompact ? Height * 0.78f : Height;
     const FAshenPlayerView Player = Simulation.GetPlayerView(0);
     const int32 Selected = Controller.GetSelectedCount();
+    const int32 PrimaryEntityId = Controller.GetPrimarySelectedEntityId();
 
     const float LeftWidth = FMath::Min(410.0f, (SafeWidth - 64.0f) * 0.52f);
     DrawRect(Ink, 20.0f, 18.0f, LeftWidth, 66.0f);
@@ -179,15 +182,113 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
     const float TacticalWidth = FMath::Min(238.0f, SafeWidth * 0.24f);
     const float PanelX = 20.0f + TacticalWidth + 14.0f;
     const float PanelWidth = FMath::Max(220.0f, SafeWidth - PanelX - 20.0f);
-    const float PanelY = SafeHeight - 88.0f;
-    DrawRect(Ink, PanelX, PanelY, PanelWidth, 68.0f);
-    DrawRect(Selected > 0 ? Bronze : FLinearColor(0.18f, 0.19f, 0.18f), PanelX, PanelY, 4.0f, 68.0f);
+    const float PanelHeight = 104.0f;
+    const float PanelY = SafeHeight - PanelHeight - 20.0f;
+    DrawRect(Ink, PanelX, PanelY, PanelWidth, PanelHeight);
+    DrawRect(Selected > 0 ? Bronze : FLinearColor(0.18f, 0.19f, 0.18f), PanelX, PanelY, 4.0f, PanelHeight);
     DrawText(Selected > 0 ? TEXT("WAR BAND READY") : TEXT("NO WAR BAND SELECTED"),
              Selected > 0 ? Bone : DimBone, PanelX + 20.0f, PanelY + 14.0f,
              GEngine->GetMediumFont(), 0.9f, false);
-    DrawText(Selected > 0 ? FString::Printf(TEXT("%d CANDLEBOUND UNDER COMMAND"), Selected)
-                          : TEXT("THE CROSSING AWAITS YOUR COMMAND"),
-             DimBone, PanelX + 20.0f, PanelY + 43.0f, GEngine->GetSmallFont(), 0.82f, false);
+    FString Status = Selected > 0
+                         ? FString::Printf(TEXT("%d CANDLEBOUND  //  %s"), Selected,
+                                           *Simulation.GetEntityOrderLabel(PrimaryEntityId))
+                         : TEXT("THE CROSSING AWAITS YOUR COMMAND");
+    if (Controller.GetActiveControlGroup() >= 0)
+    {
+        Status += FString::Printf(TEXT("  //  GROUP %d"), Controller.GetActiveControlGroup());
+    }
+    DrawText(Status, DimBone, PanelX + 20.0f, PanelY + 42.0f, GEngine->GetSmallFont(), 0.82f, false);
+
+    const bool bBuildingSelected = PrimaryEntityId > 0 &&
+        (Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Command ||
+         Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Barracks ||
+         Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Turret);
+    DrawRect(Iron, PanelX + 12.0f, PanelY + 68.0f, PanelWidth - 24.0f, 25.0f);
+    DrawText(bBuildingSelected ? TEXT("Q  TRAIN I     E  TRAIN II     R  RALLY")
+                               : (bCompact ? TEXT("A  ADVANCE    S  STOP    H  HOLD    P  PATROL")
+                                           : TEXT("A  ADVANCE    S  STOP    H  HOLD    P  PATROL    SHIFT  QUEUE")),
+             Selected > 0 ? Bone : DimBone, PanelX + 22.0f, PanelY + 72.0f,
+             GEngine->GetSmallFont(), bCompact ? 0.68f : 0.78f, false);
+
+    const FString CommandMode = Controller.GetCommandModeLabel();
+    if (!CommandMode.IsEmpty())
+    {
+        const float ModeWidth = FMath::Min(420.0f, SafeWidth - 40.0f);
+        const float ModeX = (SafeWidth - ModeWidth) * 0.5f;
+        DrawRect(FLinearColor(0.025f, 0.018f, 0.014f, 0.96f), ModeX, 102.0f, ModeWidth, 38.0f);
+        DrawRect(Blood, ModeX, 102.0f, 4.0f, 38.0f);
+        DrawText(CommandMode, Bone, ModeX + 18.0f, 113.0f, GEngine->GetSmallFont(), 0.88f, false);
+    }
+}
+
+void AAshenHUD::DrawOrderRoute(const AAshenPlayerController& Controller,
+                               const UAshenSimulationSubsystem& Simulation)
+{
+    const int32 EntityId = Controller.GetPrimarySelectedEntityId();
+    const TArray<FVector> Route = Simulation.GetEntityRoute(EntityId);
+    if (EntityId <= 0 || Route.IsEmpty())
+    {
+        return;
+    }
+
+    const AAshenEntityActor* SelectedActor = nullptr;
+    for (TActorIterator<AAshenEntityActor> It(GetWorld()); It; ++It)
+    {
+        if (It->GetEntityId() == EntityId)
+        {
+            SelectedActor = *It;
+            break;
+        }
+    }
+    if (SelectedActor == nullptr)
+    {
+        return;
+    }
+
+    FVector2D Previous;
+    if (!GetOwningPlayerController()->ProjectWorldLocationToScreen(SelectedActor->GetActorLocation(), Previous))
+    {
+        return;
+    }
+    const FColor RouteColor = FLinearColor(0.78f, 0.43f, 0.10f, 0.72f).ToFColor(true);
+    const FColor WaypointColor = FLinearColor(0.88f, 0.58f, 0.18f, 0.9f).ToFColor(true);
+    for (const FVector& Waypoint : Route)
+    {
+        FVector2D Screen;
+        if (!GetOwningPlayerController()->ProjectWorldLocationToScreen(Waypoint, Screen))
+        {
+            continue;
+        }
+        Draw2DLine(Previous.X, Previous.Y, Screen.X, Screen.Y, RouteColor);
+        constexpr float Mark = 4.0f;
+        Draw2DLine(Screen.X, Screen.Y - Mark, Screen.X + Mark, Screen.Y, WaypointColor);
+        Draw2DLine(Screen.X + Mark, Screen.Y, Screen.X, Screen.Y + Mark, WaypointColor);
+        Draw2DLine(Screen.X, Screen.Y + Mark, Screen.X - Mark, Screen.Y, WaypointColor);
+        Draw2DLine(Screen.X - Mark, Screen.Y, Screen.X, Screen.Y - Mark, WaypointColor);
+        Previous = Screen;
+    }
+}
+
+void AAshenHUD::DrawCommandFeedback(const AAshenPlayerController& Controller)
+{
+    FVector Location;
+    bool bHostile = false;
+    float Strength = 0.0f;
+    FVector2D Screen;
+    if (!Controller.GetCommandFeedback(Location, bHostile, Strength) ||
+        !GetOwningPlayerController()->ProjectWorldLocationToScreen(Location, Screen))
+    {
+        return;
+    }
+
+    const float Radius = 8.0f + (1.0f - Strength) * 15.0f;
+    FLinearColor Color = bHostile ? Blood : Bronze;
+    Color.A = Strength;
+    const FColor FeedbackColor = Color.ToFColor(true);
+    Draw2DLine(Screen.X, Screen.Y - Radius, Screen.X + Radius, Screen.Y, FeedbackColor);
+    Draw2DLine(Screen.X + Radius, Screen.Y, Screen.X, Screen.Y + Radius, FeedbackColor);
+    Draw2DLine(Screen.X, Screen.Y + Radius, Screen.X - Radius, Screen.Y, FeedbackColor);
+    Draw2DLine(Screen.X - Radius, Screen.Y, Screen.X, Screen.Y - Radius, FeedbackColor);
 }
 
 void AAshenHUD::DrawTacticalMap()

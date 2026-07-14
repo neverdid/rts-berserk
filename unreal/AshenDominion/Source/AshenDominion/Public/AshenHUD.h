@@ -18,6 +18,8 @@ private:
     void DrawFrontEnd(const AAshenPlayerController& Controller);
     void DrawBattleHud(const AAshenPlayerController& Controller, const UAshenSimulationSubsystem& Simulation);
     void DrawTacticalMap();
+    void DrawOrderRoute(const AAshenPlayerController& Controller, const UAshenSimulationSubsystem& Simulation);
+    void DrawCommandFeedback(const AAshenPlayerController& Controller);
     void DrawSelectionMarquee(const AAshenPlayerController& Controller);
     void DrawMatchResult(const UAshenSimulationSubsystem& Simulation);
 };

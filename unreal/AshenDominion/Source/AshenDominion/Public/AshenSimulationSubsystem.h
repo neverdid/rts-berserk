@@ -23,13 +23,28 @@ public:
     virtual TStatId GetStatId() const override;
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget);
+    bool IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueAttack(const TArray<int32>& EntityIds, int32 TargetEntityId);
+    bool IssueAttack(const TArray<int32>& EntityIds, int32 TargetEntityId, bool bQueue);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueGather(const TArray<int32>& EntityIds, int32 ResourceId);
+    bool IssueAttackMove(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueGather(const TArray<int32>& EntityIds, int32 ResourceId, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssuePatrol(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueStop(const TArray<int32>& EntityIds);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueHold(const TArray<int32>& EntityIds, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueSetRallyPoint(int32 ProducerId, const FVector& WorldTarget);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
     bool IssueTrain(int32 ProducerId, bool bSecondaryUnit);
@@ -45,6 +60,9 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
     EAshenEntityArchetype GetEntityArchetype(int32 EntityId) const;
+
+    FString GetEntityOrderLabel(int32 EntityId) const;
+    TArray<FVector> GetEntityRoute(int32 EntityId) const;
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|State")
     void SetGameplayEnabled(bool bEnabled);

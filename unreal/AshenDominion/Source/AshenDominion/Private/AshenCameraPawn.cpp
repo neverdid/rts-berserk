@@ -76,6 +76,15 @@ void AAshenCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     PlayerInputComponent->BindAxis(TEXT("CameraZoom"), this, &AAshenCameraPawn::AddZoomInput);
 }
 
+void AAshenCameraPawn::FocusOn(const FVector& WorldPosition)
+{
+    FVector Location = GetActorLocation();
+    Location.X = FMath::Clamp(WorldPosition.X, 260.0f, 3'580.0f);
+    Location.Y = FMath::Clamp(WorldPosition.Y, 190.0f, 1'970.0f);
+    Location.Z = 0.0f;
+    SetActorLocation(Location);
+}
+
 void AAshenCameraPawn::SetForwardInput(const float Value)
 {
     ForwardInput = Value;

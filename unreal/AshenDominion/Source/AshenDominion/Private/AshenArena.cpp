@@ -275,6 +275,16 @@ void AAshenArena::BuildRoadsAndBridges()
                                                FVector(3.35f, 0.075f, 0.11f)));
         }
     }
+
+    // A narrow ritual ford keeps the central iron island contestable and mirrors the navigation portal.
+    for (int32 Stone = -6; Stone <= 6; ++Stone)
+    {
+        const float Offset = static_cast<float>(Stone);
+        RoadStones->AddInstance(FTransform(
+            FRotator(0.0f, static_cast<float>((Stone * 17) % 13), 0.0f),
+            FVector(RiverCenterX + Offset * 25.0f, 1'080.0f + static_cast<float>(Stone % 2) * 9.0f, 12.0f),
+            FVector(0.22f, 0.66f + static_cast<float>((Stone + 6) % 3) * 0.08f, 0.10f)));
+    }
 }
 
 void AAshenArena::BuildFortifications()
