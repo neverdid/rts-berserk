@@ -16,6 +16,7 @@ public:
     AAshenCameraPawn();
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    void FocusOn(const FVector& WorldPosition);
 
 private:
     void SetForwardInput(float Value);

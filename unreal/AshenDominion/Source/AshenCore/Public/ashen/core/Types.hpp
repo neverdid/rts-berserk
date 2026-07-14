@@ -50,9 +50,19 @@ enum class MatchStatus : std::uint8_t { Playing, Won, Lost };
 enum class EntityKind : std::uint8_t { Unit, Building };
 enum class EntityType : std::uint8_t { Worker, Vanguard, Skirmisher, Command, Barracks, Turret };
 enum class ArmorClass : std::uint8_t { Laborer, Armored, Light, Structure };
-enum class OrderType : std::uint8_t { Idle, Move, Attack, Gather };
+enum class OrderType : std::uint8_t { Idle, Move, Attack, AttackMove, Gather, Patrol, Hold };
 enum class GatherPhase : std::uint8_t { ToResource, Harvest, Return };
-enum class CommandType : std::uint8_t { Move, Attack, Gather, Train };
+enum class CommandType : std::uint8_t {
+  Move,
+  Attack,
+  AttackMove,
+  Gather,
+  Train,
+  Stop,
+  Hold,
+  Patrol,
+  SetRallyPoint,
+};
 enum class CommandError : std::uint8_t {
   None,
   InvalidOwner,
@@ -101,10 +111,14 @@ struct FactionDefinition {
 struct Order {
   OrderType type{OrderType::Idle};
   Vec2 target{};
+  Vec2 secondary_target{};
   EntityId target_entity{};
   ResourceId resource{};
   GatherPhase gather_phase{GatherPhase::ToResource};
   Tick phase_ticks{};
+  Vec2 route_goal{};
+  std::vector<Vec2> route{};
+  std::size_t route_index{};
 };
 
 struct ProductionTask {
@@ -135,6 +149,7 @@ struct Entity {
   std::int32_t supply_provided{};
   std::int32_t carrying{};
   Order order{};
+  std::vector<Order> order_queue{};
   Vec2 rally_point{};
   std::vector<ProductionTask> production_queue{};
 
@@ -156,11 +171,23 @@ struct PlayerState {
   std::int32_t supply_cap{};
 };
 
+struct NavigationObstacle {
+  Vec2 minimum{};
+  Vec2 maximum{};
+};
+
 struct SimulationConfig {
   MatchMode mode{MatchMode::Skirmish};
   FactionId player_one_faction{FactionId::Candlebound};
   FactionId player_two_faction{FactionId::Hollow};
   Vec2 map_size{world(1'920, 1'080)};
+  std::int32_t navigation_cell_size{world(36, 0).x};
+  std::vector<NavigationObstacle> navigation_obstacles{
+      {world(875, 0), world(1'045, 285)},
+      {world(875, 395), world(1'045, 500)},
+      {world(875, 580), world(1'045, 685)},
+      {world(875, 795), world(1'045, 1'080)},
+  };
   bool seed_starting_forces{true};
 };
 
@@ -175,6 +202,7 @@ struct Command {
   ResourceId resource{};
   EntityId producer{};
   EntityType train_type{EntityType::Worker};
+  bool queue{};
 };
 
 struct CommandResult {
