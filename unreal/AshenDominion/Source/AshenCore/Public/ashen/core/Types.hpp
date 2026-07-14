@@ -7,6 +7,10 @@
 #include <string_view>
 #include <vector>
 
+#ifndef ASHENCORE_API
+#define ASHENCORE_API
+#endif
+
 namespace ashen::core {
 
 using Tick = std::uint64_t;

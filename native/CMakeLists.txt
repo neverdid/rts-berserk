@@ -1,11 +1,15 @@
+set(ASHEN_CORE_MODULE_DIR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../unreal/AshenDominion/Source/AshenCore
+)
+
 add_library(ashen_core STATIC
-  src/Catalog.cpp
-  src/Simulation.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/Catalog.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/Simulation.cpp
 )
 
 target_include_directories(ashen_core
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${ASHEN_CORE_MODULE_DIR}/Public
 )
 
 target_compile_features(ashen_core PUBLIC cxx_std_20)

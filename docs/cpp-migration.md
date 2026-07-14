@@ -2,16 +2,16 @@
 
 ## Decision
 
-Ashen Dominion is moving toward an Unreal-hosted C++ client while keeping its authoritative RTS rules in
-a portable C++20 library. The browser prototype remains playable during migration and acts as a behavior
-and balance reference.
+Ashen Dominion uses an Unreal-hosted C++ client while keeping authoritative RTS rules in a portable
+C++20 library. The browser prototype remains playable during migration and acts as a behavior, balance,
+story, and interaction reference.
 
-This is not a line-by-line TypeScript translation. The migration separates responsibilities that were
-previously concentrated in `simulation.ts` and `RtsThreeEngine.ts`.
+This is not a line-by-line TypeScript translation. Rendering and platform behavior are deliberately
+separated from deterministic game rules.
 
 ## Ownership boundaries
 
-### `ashen_core`
+### `AshenCore`
 
 Owns deterministic, headless game rules:
 
@@ -23,37 +23,41 @@ Owns deterministic, headless game rules:
 - movement, gathering, production, combat, supply, and victory
 - state hashing for replay and desync detection
 
-It must not depend on Unreal types, rendering, audio, operating-system APIs, or wall-clock time.
+It has no dependency on Unreal types, rendering, audio, operating-system APIs, or wall-clock time. CMake
+and Unreal compile the same files from `unreal/AshenDominion/Source/AshenCore/`.
 
-### Unreal bridge
+### Unreal client
 
-Will own presentation and platform behavior:
+Owns presentation and platform behavior:
 
-- camera and input mapping
-- selection feedback and command previews
-- terrain, meshes, animation, VFX, audio, and UI
-- mapping authoritative entity IDs to visual representations
-- interpolation between fixed simulation snapshots
-- lobby, account, matchmaking, and platform services
+- RTS camera, screen-edge movement, smooth zoom, and input mapping
+- click, additive, and drag-box selection feedback
+- contextual command dispatch to authoritative entity IDs
+- terrain dressing, meshes, materials, lighting, fog, HUD, and visual entity synchronization
+- future animation, VFX, audio, menus, mission presentation, and localization
+- future lobby, account, matchmaking, and platform services
 
-Mass Entity and Mass Gameplay are candidates for visual representation and LOD at high unit counts. They
-are not the source of truth for competitive rules.
+Actors are visual proxies. They do not decide damage, income, production completion, or victory.
 
 ### Dedicated server
 
-Will run the same `ashen_core` library without graphics. Clients submit tick-stamped commands; the server
-validates ownership and resources, advances the authoritative simulation, and periodically sends state
-hashes and snapshots. Per-unit Actor replication is intentionally avoided.
+The planned server will run `AshenCore` without graphics. Clients submit tick-stamped commands; the
+server validates ownership and resources, advances the authoritative simulation, and periodically sends
+state hashes and snapshots. Per-unit Actor replication is intentionally avoided.
 
 ## Migration stages
 
-1. **Native foundation**: fixed-step core, commands, economy, combat, tests, and CI.
-2. **Parity fixtures**: export representative TypeScript scenarios and assert equivalent C++ outcomes.
-3. **Unreal shell**: camera, selection, terrain, visual entity registry, and command bridge.
-4. **Feature parity**: construction, research, race powers, control points, fog, AI, and story objectives.
-5. **Competitive networking**: authoritative server, command buffering, reconnect snapshots, replays, and
-   desync diagnostics.
-6. **Content pipeline**: data-driven units, maps, missions, animation, audio, and localization.
+1. **Native foundation - complete**: fixed-step core, commands, economy, combat, tests, and CI.
+2. **Unreal foundation - complete**: UE 5.8 project, module bridge, camera, selection, visual registry,
+   contextual commands, HUD, and a procedural battlefield.
+3. **Parity fixtures - next**: export representative TypeScript scenarios and assert equivalent C++
+   outcomes.
+4. **Feature parity**: pathfinding, construction, research, faction powers, control points, fog, AI, and
+   story objectives.
+5. **Competitive networking**: authoritative server, command buffering, reconnect snapshots, replays,
+   matchmaking, and desync diagnostics.
+6. **Content pipeline**: project-owned terrain materials, production meshes, maps, missions, animation,
+   audio, cinematics, and localization.
 7. **Native transition**: retire the browser runtime only after story and PvP acceptance tests pass.
 
 ## Quality gates
@@ -65,10 +69,12 @@ hashes and snapshots. Per-unit Actor replication is intentionally avoided.
 - PvP and story use the same simulation systems; missions add data and scripted objectives.
 - Replays store setup, commands, and version metadata rather than rendered state.
 - CI builds and tests the native core on Windows and Linux and keeps the web prototype green.
+- Unreal changes must pass UHT, an editor build, the `Ashen` automation suite, a game launch, and a
+  nonblank render inspection before merge.
 
 ## Current parity
 
-Implemented in C++:
+Implemented in portable C++:
 
 - three asymmetric factions
 - six entity archetypes and faction overrides
@@ -79,11 +85,23 @@ Implemented in C++:
 - command-structure victory
 - ordered command replay and deterministic state hashing
 
-Still using the TypeScript prototype as the reference:
+Implemented in the Unreal client:
 
-- pathfinding and collision separation
+- fixed-step subsystem integration with bounded catch-up
+- entity and resource visual proxy lifecycle
+- contextual movement, attack, gathering, and training
+- player camera, edge scroll, smooth zoom, single/additive/box selection
+- compact resource, supply, selection, and tick HUD
+- lit 3D ground, faction/resource materials, ritual stones, and instanced map boundaries
+- Blueprint-safe command/state API
+- in-engine deterministic automation coverage
+
+Still using the TypeScript prototype as a reference:
+
+- grid pathfinding, collision separation, and formations
 - building placement and construction
-- stances, attack-move, retreat, research, and race powers
+- stances, attack-move, retreat, research, and faction powers
 - projectiles, resolve, terror, wards, control points, and Ruin Tide
-- AI personalities and story objectives
-- fog of war, navigation mesh integration, UI, rendering, and audio
+- AI personalities, campaign objectives, dialogue, and cinematics
+- fog of war, minimap, full command card, animation, VFX, audio, and production assets
+- online lobby, authoritative server, reconnect, replays, and ranked PvP

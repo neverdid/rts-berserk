@@ -1,0 +1,27 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Games",
+  "Description": "Native Unreal client for the Ashen Dominion dark medieval horror RTS.",
+  "Modules": [
+    {
+      "Name": "AshenCore",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    },
+    {
+      "Name": "AshenDominion",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "AdditionalDependencies": [
+        "Engine"
+      ]
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "AndroidFileServer",
+      "Enabled": false
+    }
+  ]
+}

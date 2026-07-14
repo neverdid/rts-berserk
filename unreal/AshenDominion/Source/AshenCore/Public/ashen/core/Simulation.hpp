@@ -9,7 +9,7 @@
 
 namespace ashen::core {
 
-class Simulation final {
+class ASHENCORE_API Simulation final {
  public:
   explicit Simulation(const SimulationConfig& config = {});
 
