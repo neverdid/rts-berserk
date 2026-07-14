@@ -3,6 +3,9 @@
 #include "GameFramework/HUD.h"
 #include "AshenHUD.generated.h"
 
+class AAshenPlayerController;
+class UAshenSimulationSubsystem;
+
 UCLASS()
 class ASHENDOMINION_API AAshenHUD final : public AHUD
 {
@@ -10,4 +13,11 @@ class ASHENDOMINION_API AAshenHUD final : public AHUD
 
 public:
     virtual void DrawHUD() override;
+
+private:
+    void DrawFrontEnd(const AAshenPlayerController& Controller);
+    void DrawBattleHud(const AAshenPlayerController& Controller, const UAshenSimulationSubsystem& Simulation);
+    void DrawTacticalMap();
+    void DrawSelectionMarquee(const AAshenPlayerController& Controller);
+    void DrawMatchResult(const UAshenSimulationSubsystem& Simulation);
 };
