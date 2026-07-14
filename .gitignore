@@ -18,6 +18,14 @@ out
 .vs
 CMakeUserPresets.json
 
+# Unreal Engine generated output
+unreal/AshenDominion/Binaries
+unreal/AshenDominion/DerivedDataCache
+unreal/AshenDominion/Intermediate
+unreal/AshenDominion/Saved
+unreal/AshenDominion/.vs
+unreal/AshenDominion/*.sln
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
