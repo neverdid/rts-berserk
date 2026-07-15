@@ -20,6 +20,7 @@ import {
   updateSimulation,
 } from './simulation'
 import { TERRAIN_BLOCKERS, isTerrainBlocked } from './map'
+import { getEntityDef } from './catalog'
 
 function runFor(seconds: number, step: number, tick: () => void): void {
   for (let elapsed = 0; elapsed < seconds; elapsed += step) {
@@ -28,12 +29,22 @@ function runFor(seconds: number, step: number, tick: () => void): void {
 }
 
 describe('RTS simulation', () => {
-  it('starts local PvP with symmetric infrastructure', () => {
+  it('starts local PvP with structural parity and faction-specific capacity', () => {
     const state = createInitialState('pvp')
     const buildingsOne = state.entities.filter((entity) => entity.owner === 1 && entity.kind === 'building')
     const buildingsTwo = state.entities.filter((entity) => entity.owner === 2 && entity.kind === 'building')
     expect(buildingsOne.map((entity) => entity.type)).toEqual(buildingsTwo.map((entity) => entity.type))
-    expect(getPlayerSupply(state, 1).cap).toBe(getPlayerSupply(state, 2).cap)
+    expect(state.players[1].ore).toBe(state.players[2].ore)
+    expect(getPlayerSupply(state, 1).cap).toBe(14)
+    expect(getPlayerSupply(state, 2).cap).toBe(13)
+  })
+
+  it('opens with workers already committed to the nearest economy', () => {
+    const state = createInitialState('pvp')
+    const workers = state.entities.filter((entity) => entity.type === 'worker')
+
+    expect(workers).toHaveLength(6)
+    expect(workers.every((worker) => worker.order.type === 'gather')).toBe(true)
   })
 
   it('lets workers gather and deposit ore', () => {
@@ -50,6 +61,32 @@ describe('RTS simulation', () => {
     expect(ore.amount).toBeLessThan(ore.maxAmount)
   })
 
+  it('requires the AI to mine resources instead of receiving passive ore', () => {
+    const miningState = createInitialState('skirmish')
+    runFor(20, 0.05, () => updateSimulation(miningState, 0.05))
+    expect(miningState.stats[2].oreMined).toBeGreaterThan(0)
+
+    const isolatedState = createInitialState('skirmish')
+    isolatedState.resources = []
+    isolatedState.controlPoints = []
+    isolatedState.aiDecisionTimer = 999
+    isolatedState.aiWaveTimer = Number.POSITIVE_INFINITY
+    isolatedState.players[2].ore = 73
+    runFor(5, 0.05, () => updateSimulation(isolatedState, 0.05))
+    expect(isolatedState.players[2].ore).toBe(73)
+  })
+
+  it('has the AI construct and complete missing production infrastructure', () => {
+    const state = createInitialState('skirmish')
+    runFor(1, 0.05, () => updateSimulation(state, 0.05))
+    const site = state.entities.find((entity) => entity.owner === 2 && entity.type === 'barracks')
+    expect(site).toBeDefined()
+    expect(site?.underConstruction).toBe(true)
+
+    runFor(20, 0.05, () => updateSimulation(state, 0.05))
+    expect(site?.underConstruction).toBe(false)
+  })
+
   it('spends ore and spawns trained units from a queue', () => {
     const state = createInitialState('pvp')
     const command = state.entities.find((entity) => entity.owner === 1 && entity.type === 'command')
@@ -62,6 +99,7 @@ describe('RTS simulation', () => {
     runFor(7, 0.05, () => updateSimulation(state, 0.05))
     const workers = state.entities.filter((entity) => entity.owner === 1 && entity.type === 'worker')
     expect(workers.length).toBe(4)
+    expect(workers.at(-1)?.order.type).toBe('gather')
   })
 
   it('counts queued army capacity and blocks over-cap production', () => {
@@ -112,41 +150,56 @@ describe('RTS simulation', () => {
   })
 
   it('applies race-specific names and production costs', () => {
-    const state = createInitialState('pvp', 'hollow', 'sepulcher')
+    const state = createInitialState('pvp', 'ascendancy', 'concord')
     const command = state.entities.find((entity) => entity.owner === 1 && entity.type === 'command')
     expect(command).toBeDefined()
-    expect(state.players[1].name).toBe('Hollow Choir')
-    expect(command!.label).toBe('Choir Spire')
+    expect(state.players[1].name).toBe('Gloam Ascendancy')
+    expect(command!.label).toBe('House of Quiet')
 
     const result = startProduction(state, command!.id, 'worker', 1)
     expect(result.ok).toBe(true)
-    expect(state.players[1].ore).toBe(224)
+    expect(state.players[1].ore).toBe(220)
 
     runFor(5.5, 0.05, () => updateSimulation(state, 0.05))
     const workers = state.entities.filter((entity) => entity.owner === 1 && entity.type === 'worker')
-    expect(workers.some((entity) => entity.label === 'Mute Thrall')).toBe(true)
+    expect(workers.some((entity) => entity.label === 'Votary')).toBe(true)
   })
 
   it('gives each faction a distinct recovery doctrine', () => {
-    const remnant = createInitialState('pvp', 'candlebound', 'hollow')
-    const remnantSoldier = remnant.entities.find((entity) => entity.owner === 1 && entity.type === 'vanguard')!
-    remnantSoldier.hp = 30
-    remnantSoldier.resolve = 20
-    expect(activateRacePower(remnant, 1).ok).toBe(true)
-    expect(remnantSoldier.hp).toBeGreaterThan(30)
-    expect(remnantSoldier.resolve).toBe(100)
-    expect(activateRacePower(remnant, 1).ok).toBe(false)
+    const compact = createInitialState('pvp', 'compact', 'ascendancy')
+    const compactSoldier = compact.entities.find((entity) => entity.owner === 1 && entity.type === 'vanguard')!
+    compactSoldier.hp = 30
+    compactSoldier.resolve = 20
+    expect(activateRacePower(compact, 1).ok).toBe(true)
+    expect(compactSoldier.hp).toBeGreaterThan(30)
+    expect(compactSoldier.resolve).toBe(100)
+    expect(activateRacePower(compact, 1).ok).toBe(false)
 
-    const choir = createInitialState('pvp', 'hollow', 'sepulcher')
-    const choirCount = choir.entities.filter((entity) => entity.owner === 1 && entity.type === 'vanguard').length
-    expect(activateRacePower(choir, 1).ok).toBe(true)
-    expect(choir.entities.filter((entity) => entity.owner === 1 && entity.type === 'vanguard')).toHaveLength(choirCount + 1)
+    const ascendancy = createInitialState('pvp', 'ascendancy', 'concord')
+    const crownedCount = ascendancy.entities.filter((entity) => entity.owner === 1 && entity.type === 'vanguard').length
+    expect(activateRacePower(ascendancy, 1).ok).toBe(true)
+    expect(ascendancy.entities.filter((entity) => entity.owner === 1 && entity.type === 'vanguard')).toHaveLength(crownedCount + 1)
 
-    const host = createInitialState('pvp', 'sepulcher', 'hollow')
-    const hostKeep = host.entities.find((entity) => entity.owner === 1 && entity.type === 'command')!
-    hostKeep.hp = 300
-    expect(activateRacePower(host, 1).ok).toBe(true)
-    expect(hostKeep.hp).toBeGreaterThan(300)
+    const concord = createInitialState('pvp', 'concord', 'ascendancy')
+    const meetingStone = concord.entities.find((entity) => entity.owner === 1 && entity.type === 'command')!
+    meetingStone.hp = 300
+    expect(activateRacePower(concord, 1).ok).toBe(true)
+    expect(meetingStone.hp).toBeGreaterThan(300)
+  })
+
+  it('gives the three factions materially different battlefield profiles', () => {
+    const compactLine = getEntityDef('vanguard', 'compact')
+    const crowned = getEntityDef('vanguard', 'ascendancy')
+    const giant = getEntityDef('vanguard', 'concord')
+    const compactRanged = getEntityDef('skirmisher', 'compact')
+    const waybow = getEntityDef('skirmisher', 'concord')
+
+    expect(crowned.hp).toBeGreaterThan(compactLine.hp)
+    expect(crowned.terror).toBeGreaterThan(compactLine.terror)
+    expect(giant.damage).toBeGreaterThan(crowned.damage)
+    expect(giant.speed).toBeLessThan(crowned.speed)
+    expect(waybow.range).toBeGreaterThan(compactRanged.range)
+    expect(waybow.speed).toBeGreaterThan(compactRanged.speed)
   })
 
   it('creates a building through worker construction', () => {
@@ -194,6 +247,21 @@ describe('RTS simulation', () => {
     expect(calculateDamage(pyre, arbalest)).toBeGreaterThan(pyre.damage)
   })
 
+  it('keeps a basic engagement readable before resolving it decisively', () => {
+    const state = createInitialState('pvp')
+    state.entities = state.entities.filter((entity) => entity.kind === 'building')
+    const compactLine = createEntity(state, 'vanguard', 1, { x: 840, y: 880 })
+    const crownedLine = createEntity(state, 'vanguard', 2, { x: 885, y: 880 })
+
+    runFor(0.45, 0.05, () => updateSimulation(state, 0.05))
+    expect(getEntity(state, compactLine.id)).toBeDefined()
+    expect(getEntity(state, crownedLine.id)).toBeDefined()
+
+    runFor(9, 0.05, () => updateSimulation(state, 0.05))
+    const survivors = [getEntity(state, compactLine.id), getEntity(state, crownedLine.id)].filter(Boolean)
+    expect(survivors).toHaveLength(1)
+  })
+
   it('hides distant enemies until scouted', () => {
     const state = createInitialState('pvp')
     const enemyCommand = state.entities.find((entity) => entity.owner === 2 && entity.type === 'command')
@@ -205,7 +273,7 @@ describe('RTS simulation', () => {
     expect(isEntityVisibleTo(state, enemyCommand!, 1)).toBe(true)
   })
 
-  it('raises and lowers the ruin tide over time', () => {
+  it('raises and lowers the Dread Tide over time', () => {
     const state = createInitialState('pvp')
     updateSimulation(state, 0.05)
     const openingTide = state.ruinTide
@@ -247,14 +315,32 @@ describe('RTS simulation', () => {
     expect(state.storyStep).toBe(3)
   })
 
-  it('keeps story AI dormant until the first economy objective advances', () => {
+  it('locks every story chapter to its authored faction perspective', () => {
+    const humanChapter = createInitialState('story', 'concord', 'compact', { missionId: 'bridge-of-names' })
+    const transformedChapter = createInitialState('story', 'concord', 'ascendancy', {
+      missionId: 'mercy-for-the-uncounted',
+    })
+    const elderChapter = createInitialState('story', 'compact', 'ascendancy', {
+      missionId: 'where-roots-remember',
+    })
+
+    expect([humanChapter.players[1].race, humanChapter.players[2].race]).toEqual(['compact', 'ascendancy'])
+    expect([transformedChapter.players[1].race, transformedChapter.players[2].race]).toEqual([
+      'ascendancy',
+      'compact',
+    ])
+    expect([elderChapter.players[1].race, elderChapter.players[2].race]).toEqual(['concord', 'ascendancy'])
+  })
+
+  it('lets story AI build a real economy without breaking the opening truce', () => {
     const state = createInitialState('story')
-    const enemyOre = state.players[2].ore
+    state.entities = state.entities.filter((entity) => !(entity.owner === 1 && entity.type === 'worker'))
 
-    runFor(45, 0.05, () => updateSimulation(state, 0.05))
+    runFor(22, 0.05, () => updateSimulation(state, 0.05))
 
-    expect(state.players[2].ore).toBe(enemyOre)
+    expect(state.stats[2].oreMined).toBeGreaterThan(0)
     expect(state.events.some((event) => event.text.includes('warband'))).toBe(false)
+    expect(state.storyStep).toBe(0)
 
     state.players[1].ore = 400
     updateSimulation(state, 0.05)
@@ -327,8 +413,10 @@ describe('RTS simulation', () => {
     expect(state.players[1].ore).toBeGreaterThan(openingOre)
   })
 
-  it('wins Lantern Vigil by holding through the survival timer', () => {
-    const state = createInitialState('story', 'candlebound', 'hollow', { missionId: 'lantern-vigil' })
+  it('wins Mercy for the Uncounted by holding through the survival timer', () => {
+    const state = createInitialState('story', 'compact', 'concord', { missionId: 'mercy-for-the-uncounted' })
+    expect(state.players[1].race).toBe('ascendancy')
+    expect(state.players[2].race).toBe('compact')
     state.entities = state.entities.filter((entity) => entity.owner === 1)
 
     runFor(151, 0.05, () => updateSimulation(state, 0.05))
@@ -337,14 +425,19 @@ describe('RTS simulation', () => {
     expect(state.winner).toBe(1)
   })
 
-  it('gives AI personalities distinct opening forces', () => {
-    const aggressive = createInitialState('skirmish', 'candlebound', 'hollow', { aiPersonality: 'aggressive' })
-    const economic = createInitialState('skirmish', 'candlebound', 'hollow', { aiPersonality: 'economic' })
-    const fortress = createInitialState('skirmish', 'candlebound', 'hollow', { aiPersonality: 'fortress' })
+  it('gives AI personalities different timing without hidden starting bonuses', () => {
+    const aggressive = createInitialState('skirmish', 'compact', 'ascendancy', { aiPersonality: 'aggressive' })
+    const economic = createInitialState('skirmish', 'compact', 'ascendancy', { aiPersonality: 'economic' })
+    const fortress = createInitialState('skirmish', 'compact', 'ascendancy', { aiPersonality: 'fortress' })
 
-    expect(aggressive.entities.filter((entity) => entity.owner === 2 && entity.type === 'vanguard')).toHaveLength(2)
-    expect(economic.entities.filter((entity) => entity.owner === 2 && entity.type === 'worker')).toHaveLength(4)
-    expect(fortress.entities.filter((entity) => entity.owner === 2 && entity.type === 'turret')).toHaveLength(2)
+    expect(aggressive.players[2].ore).toBe(aggressive.players[1].ore)
+    expect(economic.players[2].ore).toBe(economic.players[1].ore)
+    expect(fortress.players[2].ore).toBe(fortress.players[1].ore)
+    expect(aggressive.aiWaveTimer).toBeLessThan(economic.aiWaveTimer)
+    expect(economic.aiWaveTimer).toBeLessThan(fortress.aiWaveTimer)
+    expect(aggressive.entities.filter((entity) => entity.owner === 2 && entity.kind === 'building')).toHaveLength(1)
+    expect(economic.entities.filter((entity) => entity.owner === 2 && entity.kind === 'building')).toHaveLength(1)
+    expect(fortress.entities.filter((entity) => entity.owner === 2 && entity.kind === 'building')).toHaveLength(1)
   })
 
   it('keeps hold-position troops from chasing beyond weapon reach', () => {

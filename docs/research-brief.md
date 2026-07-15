@@ -42,19 +42,36 @@ Avoid early:
 
 ## Original Medieval Horror Direction
 
-Working title: **Ashen Dominion**.
+Working title: **Vowfall**. The title is provisional pending professional trademark and storefront
+clearance.
 
-The world should evoke tragic medieval horror: doomed keeps, starving villages, oathbound soldiers, heretical choirs, black iron, tallow wards, and armies trying to stay human while winning. It should not copy Berserk. Avoid protected names, characters, silhouettes, symbols, factions, events, and iconography. The inspiration to keep is emotional tone: desperate war, monstrous temptation, brutality with consequence, and the feeling that victory still costs something.
+The world should evoke tragic medieval horror through besieged roads, displaced communities, practical
+late-medieval armies, black iron, living memory, transformation, and civilizations trying to remain
+morally recognizable while winning. It must not copy *Berserk* or any other source. Avoid protected
+names, characters, silhouettes, symbols, factions, events, cosmology, costumes, and iconography. The
+retained lessons are emotional: endurance under overwhelming pressure, intimacy inside cosmic horror,
+physical consequence, and victory that changes the victor.
 
-Story regions:
+The playable conflict belongs to three original factions:
 
-1. **Ashen Dominion**: Candle-keeps defend the last human roads against the Hollow Choir.
-2. **The Wound March**: Mercenary companies fight over shrines that strengthen soldiers while corrupting them.
-3. **The Salt Saint**: A drowned principality returns from the sea with rusted armor and miracle-plagues.
+1. **Cinder Compact:** human cities defend freedom and survival while relying on conscription and
+   memory-destroying extraction.
+2. **Gloam Ascendancy:** transformed communities end hunger, debt, and fear by narrowing the self into
+   one perfected purpose.
+3. **Elder Concord:** elves, dwarves, and giants defend ecological memory while old law hardens into
+   authority over younger lives.
+
+The full creative boundary, historical and philosophical basis, cultural detail, character arcs, and
+campaign structure live in [world-bible.md](world-bible.md).
 
 ## Prototype Direction
 
-The first playable slice should prove the basics: select units, harvest black iron, build production, train troops, attack, survive AI pressure in story mode, and support a local PvP sandbox with both sides controllable. The signature mechanic is **Ruin Tide and Resolve**: dread rises on a deterministic tide and near enemy forces, while allied keeps and Warding Pyres stabilize troops. Low resolve gently reduces movement and damage, creating horror pressure while keeping outcomes readable. Online PvP should come later after deterministic lockstep or client-server authority is chosen.
+The first playable slice should prove the basics: select units, harvest black iron, build production,
+train troops, attack, survive AI pressure in story mode, and support a local PvP sandbox with both sides
+controllable. The signature mechanic is **Dread Tide and Resolve**: dread rises on a deterministic tide
+and near enemy forces, while faction wards, allies, and reclaimed memory stones stabilize troops. Low
+resolve gently reduces movement and damage, creating horror pressure while keeping outcomes readable.
+Online PvP should come later after deterministic lockstep or client-server authority is chosen.
 
 ## 2026 Control and Replayability Pass
 

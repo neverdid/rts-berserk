@@ -1,23 +1,28 @@
+import type { MapId, MissionId, RaceId } from './types'
+
 export interface StorySetting {
   id: string
   title: string
   pitch: string
-  factionA: string
-  factionB: string
+  factions: string[]
   campaignHook: string
 }
 
 export interface StoryMission {
-  id: 'black-iron-ford' | 'lantern-vigil' | 'choir-gate'
+  id: MissionId
   title: string
   subtitle: string
   briefing: string
-  mapId: 'black-iron-ford' | 'ossuary-crossroads'
+  mapId: MapId
+  playerRace: RaceId
+  opponentRace: RaceId
   kind: 'assault' | 'survival' | 'domination'
   duration?: number
   act: string
   location: string
   commander: string
+  perspective: string
+  dilemma: string
   quote: string
   lore: string
   objectives: string[]
@@ -25,31 +30,13 @@ export interface StoryMission {
 
 export const STORY_SETTINGS: StorySetting[] = [
   {
-    id: 'ashen-dominion',
-    title: 'Ashen Dominion',
-    pitch: 'A medieval horror war where candle-keeps, oathbound soldiers, and starving villages endure a spreading ruin.',
-    factionA: 'The Candlebound Remnant',
-    factionB: 'The Hollow Choir',
+    id: 'vowfall',
+    title: 'Vowfall',
+    pitch:
+      'Three civilizations fight over black iron that can feed human cities, restore the memory of the world, or end the pain of choice itself.',
+    factions: ['Cinder Compact', 'Gloam Ascendancy', 'Elder Concord'],
     campaignHook:
-      'The last human keeps burn sanctified tallow while an old king beneath the earth teaches the dead to sing.',
-  },
-  {
-    id: 'wound-march',
-    title: 'The Wound March',
-    pitch: 'Border forts crawl across a battlefield where the soil remembers every execution.',
-    factionA: 'The Blackroad Companies',
-    factionB: 'The Red Chapel',
-    campaignHook:
-      'A mercenary host discovers that each captured shrine makes its soldiers stronger and less human.',
-  },
-  {
-    id: 'salt-saint',
-    title: 'The Salt Saint',
-    pitch: 'A drowned principality returns from the sea with rusted armor, mute priests, and miracle-plagues.',
-    factionA: 'The Lowland Vow',
-    factionB: 'The Brine Host',
-    campaignHook:
-      'The campaign follows a retreat inland as every defended village buys time for one impossible exorcism.',
+      'A human marshal, a transformed physician, and a dwarven war speaker reach Bellgrave carrying three honest answers to suffering that cannot coexist.',
   },
 ]
 
@@ -57,61 +44,88 @@ export const DEFAULT_SETTING = STORY_SETTINGS[0]
 
 export const STORY_MISSIONS: StoryMission[] = [
   {
-    id: 'black-iron-ford',
-    title: 'Mission 01: The Black-Iron Ford',
-    subtitle: 'First Crossing',
-    briefing: 'Take the ford, establish production, survive the first Ruin Tide, and break the rival keep.',
+    id: 'bridge-of-names',
+    title: 'Prologue I: The Bridge of Names',
+    subtitle: 'No One Left Uncounted',
+    briefing:
+      'Open the refugee road, establish a field assembly, endure the first Dread Tide crest, and break the Ascendancy stronghold across the ford.',
     mapId: 'black-iron-ford',
+    playerRace: 'compact',
+    opponentRace: 'ascendancy',
     kind: 'assault',
-    act: 'Act I - The Last Roads',
-    location: 'Western Verge, Bellgrave Valley',
-    commander: 'Marshal Elian Veyr',
-    quote: 'We do not need the ford forever. We need it until morning.',
+    act: 'Prologue - Three Honest Beginnings',
+    location: 'Greywake Ford, Bellgrave Valley',
+    commander: 'Marshal Mara Veyr',
+    perspective: 'Cinder Compact',
+    dilemma: 'A road can save a city and still abandon everyone standing on the wrong side of it.',
+    quote: 'Write down every name before you count the distance.',
     lore:
-      'The Remnant reaches Bellgrave after thirteen days without a friendly fire on the horizon. Beneath the ford lies black iron enough to arm a province, but the Hollow Choir has already raised its listening spires on the eastern bank.',
-    objectives: ['Secure eighty black iron', 'Raise an Oath Hall', 'Endure the first Ruin Tide crest', 'Destroy the Choir command spire'],
+      'Mara reaches the ford with six thousand refugees behind her and winter stores for only four thousand. Black iron beneath the river can keep the road open, but the House of Quiet on the eastern bank shelters civilians the Compact once left without medicine.',
+    objectives: [
+      'Secure eighty black iron for the refugee road',
+      'Raise an Assembly Hall',
+      'Keep the column together through the Dread Tide crest',
+      'Break the House of Quiet without losing the March Keep',
+    ],
   },
   {
-    id: 'lantern-vigil',
-    title: 'Mission 02: Lantern Vigil',
-    subtitle: 'Hold Until Dawn',
-    briefing: 'The crossroads cannot be abandoned. Hold your command keep through the full vigil while enemy warbands close from the dark.',
+    id: 'mercy-for-the-uncounted',
+    title: 'Prologue II: Mercy for the Uncounted',
+    subtitle: 'The Last Contradiction',
+    briefing:
+      'Hold the free clinic and its evacuation road until dawn while Compact companies close around the valley.',
     mapId: 'ossuary-crossroads',
+    playerRace: 'ascendancy',
+    opponentRace: 'compact',
     kind: 'survival',
     duration: 150,
-    act: 'Act I - The Last Roads',
-    location: "Ossuary Crossroads, Saint Orra's Mile",
-    commander: 'Lantern-Captain Maelin Rook',
-    quote: 'Count the bells, not the dead. When the seventh sounds, dawn is ours.',
+    act: 'Prologue - Three Honest Beginnings',
+    location: 'Saint Orra Clinic, Lower Bellgrave',
+    commander: 'Aurel Sorn, the First Crowned',
+    perspective: 'Gloam Ascendancy',
+    dilemma: 'A choice offered after hunger is still a choice, but it is not an innocent one.',
+    quote: 'Feed them first. Ask what they believe when their hands stop shaking.',
     lore:
-      "Refugees fill the old ossuary road while the valley's lantern chain fails one shrine at a time. Rook's exhausted rearguard must hold the crossroads until the final column reaches the northern gate.",
-    objectives: ['Keep the Candle Keep standing', 'Contest both roadside reliquaries', 'Survive until the seventh bell'],
+      'The clinic abolished debt and treated a plague the Compact could only quarantine. Now its patients are called collaborators. Aurel must defend their evacuation while Ione Vale argues that no wounded volunteer should accept Absolution before sunrise.',
+    objectives: [
+      'Keep the House of Quiet standing',
+      'Contest the two roadside memory stones',
+      'Protect the evacuation until dawn',
+    ],
   },
   {
-    id: 'choir-gate',
-    title: 'Mission 03: The Choir Gate',
-    subtitle: 'Relics of the Crossroads',
-    briefing: 'Capture both reliquaries at the Ossuary Crossroads, use their income to reach the Black-Iron Age, then destroy the rival command keep.',
+    id: 'where-roots-remember',
+    title: 'Prologue III: Where Roots Remember',
+    subtitle: 'A History With Two Voices',
+    briefing:
+      'Reclaim both memory stones, awaken the buried resonance forge, and drive the Ascendancy from the watershed.',
     mapId: 'ossuary-crossroads',
+    playerRace: 'concord',
+    opponentRace: 'ascendancy',
     kind: 'domination',
-    act: 'Act II - A Kingdom of Ash',
-    location: 'The Choir Gate, Lower Bellgrave',
-    commander: 'Marshal Elian Veyr',
-    quote: 'Their song has a source. Tonight, we put a sword through it.',
+    act: 'Prologue - Three Honest Beginnings',
+    location: 'Nine-Reeds Watershed, Bellgrave',
+    commander: 'Tavra Nine-Reeds',
+    perspective: 'Elder Concord',
+    dilemma: 'Restoring an ancient river can heal the world and drown the people who arrived after the map was drawn.',
+    quote: 'The stone remembers our law. It also remembers who was forbidden to speak it.',
     lore:
-      'Two reliquaries seal the road into Lower Bellgrave. Their saints have been silent for a century, yet the Choir fears them enough to bleed for every stone. Rekindle both and the buried forge beneath the gate will answer.',
-    objectives: ['Capture both reliquaries', 'Reach the Black-Iron Age', 'Break the Choir Gate'],
+      'Two memory stones seal the oldest surviving account of the First Vow. Tavra can wake them, but their water once fed a valley now occupied by forty thousand humans. The Ascendancy offers those settlers painless passage into the Quiet.',
+    objectives: [
+      'Reclaim both memory stones',
+      'Reach the Black-Iron Age at the Meeting Stone',
+      'Break the House of Quiet at the watershed gate',
+    ],
   },
 ]
 
-export function getStoryMission(id: StoryMission['id']): StoryMission {
+export function getStoryMission(id: MissionId): StoryMission {
   return STORY_MISSIONS.find((mission) => mission.id === id) ?? STORY_MISSIONS[0]
 }
 
 export const STORY_BRIEFING = {
   title: STORY_MISSIONS[0].title,
-  subtitle: 'Ashen Dominion',
-  body:
-    'The Candlebound Remnant reaches a ruined ford before dusk. Harvest black iron, raise an Oath Hall, hold through the Ruin Tide, then burn the Hollow Choir keep before the valley learns your names.',
-  objectives: ['Harvest black iron', 'Raise an Oath Hall', 'Survive the Ruin Tide', 'Destroy the Hollow Candle Keep'],
+  subtitle: 'Vowfall',
+  body: STORY_MISSIONS[0].briefing,
+  objectives: STORY_MISSIONS[0].objectives,
 }

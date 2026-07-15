@@ -2,9 +2,12 @@
 
 ## Decision
 
-Ashen Dominion uses an Unreal-hosted C++ client while keeping authoritative RTS rules in a portable
+Vowfall uses an Unreal-hosted C++ client while keeping authoritative RTS rules in a portable
 C++20 library. The browser prototype remains playable during migration and acts as a behavior, balance,
 story, and interaction reference.
+
+The current Unreal project and module paths retain the legacy internal name `AshenDominion`. A native
+rename is intentionally deferred until the TypeScript reference and Unreal client reach behavior parity.
 
 This is not a line-by-line TypeScript translation. Rendering and platform behavior are deliberately
 separated from deterministic game rules.
@@ -108,7 +111,7 @@ Still using the TypeScript prototype as a reference:
 
 - building placement and construction
 - retreat, research, and faction powers
-- projectiles, resolve, terror, wards, control points, and Ruin Tide
+- projectiles, resolve, terror, wards, control points, and Dread Tide
 - advanced AI personalities, campaign objectives, dialogue, and cinematics
 - fog of war, full command card, animation, VFX, audio, and production assets
 - online lobby, authoritative server, reconnect, replays, and ranked PvP

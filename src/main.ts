@@ -27,7 +27,7 @@ app.innerHTML = `
       <button id="brand-home" class="brand" type="button" aria-label="Open main menu">
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-copy">
-          <strong>Ashen Dominion</strong>
+          <strong>Vowfall</strong>
           <small id="mode-label">Main Menu</small>
         </span>
       </button>
@@ -42,14 +42,14 @@ app.innerHTML = `
       </div>
     </header>
 
-    <main class="game-stage" aria-label="Ashen Dominion game">
+    <main class="game-stage" aria-label="Vowfall game">
       <div id="game-root"></div>
       <div class="battle-vignette" aria-hidden="true"></div>
 
       <section class="resource-hud" aria-label="Match status">
         <div class="commander-status">
-          <span id="active-label">Candlebound</span>
-          <strong id="active-player">Candlebound Remnant</strong>
+          <span id="active-label">Compact</span>
+          <strong id="active-player">Cinder Compact</strong>
         </div>
         <div class="resource-stat">
           <span>Iron</span>
@@ -64,7 +64,7 @@ app.innerHTML = `
           <strong id="resolve-count">100</strong>
         </div>
         <div class="resource-stat ruin-stat">
-          <span>Ruin</span>
+          <span>Dread</span>
           <strong id="ruin-count">0</strong>
         </div>
         <div class="resource-stat">
@@ -88,7 +88,7 @@ app.innerHTML = `
           <div class="panel-heading">
             <div>
               <span>Selected force</span>
-              <strong id="race-name">Candlebound Remnant</strong>
+              <strong id="race-name">Cinder Compact</strong>
             </div>
             <button id="panel-close" class="panel-close" type="button" aria-label="Close war council">Close</button>
           </div>
@@ -125,7 +125,7 @@ app.innerHTML = `
             <button data-console-view="intel" type="button" role="tab" aria-selected="false">Battle Log</button>
           </div>
           <div data-console-panel="research">
-            <p id="race-style" class="console-race-style">${RACE_DEFS.candlebound.style}</p>
+            <p id="race-style" class="console-race-style">${RACE_DEFS.compact.style}</p>
             <div id="research-list" class="research-list"></div>
           </div>
           <div data-console-panel="intel" hidden>
@@ -136,14 +136,14 @@ app.innerHTML = `
 
       <section id="main-menu" class="main-menu" aria-label="Main menu">
         <div class="menu-topline">
-          <span>Bellgrave Theatre</span>
-          <span>Black-Iron Chronicle / 01</span>
+          <span>The Bellgrave Theatre</span>
+          <span>Chronicle of the First Vow / 01</span>
         </div>
 
         <div class="menu-primary">
           <p class="eyebrow">A medieval horror real-time strategy</p>
-          <h1><span>Ashen</span> Dominion</h1>
-          <p class="menu-lead">Command the last war hosts through a kingdom where every victory teaches the dark your name.</p>
+          <h1>Vowfall</h1>
+          <p class="menu-lead">Three peoples inherit one broken promise. Command each side of a war where mercy, memory, and freedom cannot all survive unchanged.</p>
           <button id="resume-match" class="resume-match" type="button" hidden>
             <span>Continue current battle</span><strong>Resume</strong>
           </button>
@@ -168,13 +168,13 @@ app.innerHTML = `
 
         <section class="war-table" aria-label="Match setup">
           <header class="war-table-heading">
-            <div><span>Campaign dispatch</span><strong id="menu-chapter-act">Act I - The Last Roads</strong></div>
+            <div><span>Campaign dispatch</span><strong id="menu-chapter-act">Prologue - Three Honest Beginnings</strong></div>
             <span class="chapter-mark" aria-hidden="true">I</span>
           </header>
           <div class="campaign-preview">
-            <span id="menu-chapter-location">Western Verge, Bellgrave Valley</span>
-            <h2 id="menu-chapter-title">The Black-Iron Ford</h2>
-            <p id="menu-chapter-lore">The Remnant reaches Bellgrave before the Hollow Choir can seal the eastern bank.</p>
+            <span id="menu-chapter-location">Greywake Ford, Bellgrave Valley</span>
+            <h2 id="menu-chapter-title">The Bridge of Names</h2>
+            <p id="menu-chapter-lore">Mara reaches the ford with six thousand refugees behind her and winter stores for only four thousand.</p>
           </div>
 
           <div class="war-table-section">
@@ -183,7 +183,7 @@ app.innerHTML = `
               ${Object.values(RACE_DEFS)
                 .map(
                   (race) => `
-                    <button class="faction-choice ${race.id === 'candlebound' ? 'active' : ''}" data-race="${race.id}" type="button">
+                    <button class="faction-choice ${race.id === 'compact' ? 'active' : ''}" data-race="${race.id}" type="button">
                       <span class="faction-sigil" data-sigil="${race.id}" aria-hidden="true"></span>
                       <span><strong>${race.shortName}</strong><small>${race.tagline}</small></span>
                     </button>
@@ -191,43 +191,49 @@ app.innerHTML = `
                 )
                 .join('')}
             </div>
-            <p id="menu-race-style" class="faction-doctrine">${RACE_DEFS.candlebound.style}</p>
+            <div class="faction-brief">
+              <div><span>Commander</span><strong id="menu-race-protagonist">${RACE_DEFS.compact.protagonist}</strong></div>
+              <div><span>Creed</span><strong id="menu-race-ethos">${RACE_DEFS.compact.ethos}</strong></div>
+              <p id="menu-race-style" class="faction-doctrine">${RACE_DEFS.compact.style}</p>
+              <p id="menu-race-cost" class="faction-cost">${RACE_DEFS.compact.cost}</p>
+            </div>
           </div>
 
           <div class="match-setup-grid">
             <label for="mission-select"><span>Campaign chapter</span><select id="mission-select">
-              ${STORY_MISSIONS.map((mission) => `<option value="${mission.id}">${mission.title.replace(/^Mission \d+: /, '')}</option>`).join('')}
+              ${STORY_MISSIONS.map((mission) => `<option value="${mission.id}">${chapterTitle(mission.title)}</option>`).join('')}
             </select></label>
             <label for="map-select"><span>Battlefield</span><select id="map-select">
               ${Object.values(MAP_DEFS).map((map) => `<option value="${map.id}">${map.name}</option>`).join('')}
             </select></label>
             <label for="opponent-race"><span>Rival banner</span><select id="opponent-race">
-              ${Object.values(RACE_DEFS).map((race) => `<option value="${race.id}" ${race.id === 'hollow' ? 'selected' : ''}>${race.name}</option>`).join('')}
+              ${Object.values(RACE_DEFS).map((race) => `<option value="${race.id}" ${race.id === 'ascendancy' ? 'selected' : ''}>${race.name}</option>`).join('')}
             </select></label>
             <label for="ai-select"><span>Rival strategy</span><select id="ai-select">
               <option value="aggressive">Aggressive</option><option value="economic">Economic</option><option value="fortress">Fortress</option>
             </select></label>
             <label class="rule-select" for="rule-select"><span>Match rules</span><select id="rule-select">
-              <option value="standard">Standard</option><option value="fast-ruin">Fast Ruin Tide</option><option value="rich-seams">Rich Iron Seams</option>
+              <option value="standard">Standard</option><option value="fast-ruin">Fast Dread Tide</option><option value="rich-seams">Rich Iron Seams</option>
             </select></label>
           </div>
         </section>
 
-        <footer class="menu-footer"><span>Original medieval-horror universe</span><span>Build 0.2 / Ashfall</span></footer>
+        <footer class="menu-footer"><span>An original medieval-horror universe</span><span>Reference Build 0.3 / First Vow</span></footer>
       </section>
 
       <section id="briefing" class="briefing" hidden>
         <header class="briefing-header">
-          <div><span id="briefing-act">Act I - The Last Roads</span><strong id="briefing-location">Western Verge, Bellgrave Valley</strong></div>
+          <div><span id="briefing-act">Prologue - Three Honest Beginnings</span><strong id="briefing-location">Greywake Ford, Bellgrave Valley</strong></div>
           <span class="briefing-seal" aria-hidden="true">I</span>
         </header>
-        <p id="briefing-subtitle" class="eyebrow">First Crossing</p>
-        <h2 id="briefing-title">Mission 01: The Black-Iron Ford</h2>
-        <p id="briefing-body">Take the ford, establish production, survive the first Ruin Tide, and break the rival keep.</p>
-        <blockquote id="briefing-quote">We do not need the ford forever. We need it until morning.</blockquote>
+        <p id="briefing-subtitle" class="eyebrow">No One Left Uncounted</p>
+        <h2 id="briefing-title">Prologue I: The Bridge of Names</h2>
+        <p id="briefing-body">Open the refugee road, endure the Dread Tide, and break the Ascendancy stronghold across the ford.</p>
+        <blockquote id="briefing-quote">Write down every name before you count the distance.</blockquote>
         <div class="briefing-intel">
           <div><span>Field intelligence</span><p id="briefing-lore"></p></div>
           <div><span>Primary objectives</span><ol id="briefing-objectives"></ol></div>
+          <div class="briefing-dilemma"><span>The choice beneath the battle</span><p id="briefing-dilemma"></p></div>
         </div>
         <div class="briefing-actions">
           <button id="start-mission" type="button"><span>Deploy war host</span><strong>Begin Mission</strong></button>
@@ -236,7 +242,7 @@ app.innerHTML = `
       </section>
 
       <section id="end-screen" class="end-screen" hidden>
-        <p class="eyebrow">The ford remembers</p>
+        <p class="eyebrow">The world keeps account</p>
         <h2 id="end-title">Victory</h2>
         <p id="end-copy">The rival keep has fallen.</p>
         <div id="end-stats" class="end-stats"></div>
@@ -277,6 +283,9 @@ const eventLog = requiredElement<HTMLElement>('#event-log')
 const raceName = requiredElement<HTMLElement>('#race-name')
 const raceStyle = requiredElement<HTMLElement>('#race-style')
 const menuRaceStyle = requiredElement<HTMLElement>('#menu-race-style')
+const menuRaceProtagonist = requiredElement<HTMLElement>('#menu-race-protagonist')
+const menuRaceEthos = requiredElement<HTMLElement>('#menu-race-ethos')
+const menuRaceCost = requiredElement<HTMLElement>('#menu-race-cost')
 const briefingBody = requiredElement<HTMLElement>('#briefing-body')
 const briefingTitle = requiredElement<HTMLElement>('#briefing-title')
 const briefingSubtitle = requiredElement<HTMLElement>('#briefing-subtitle')
@@ -285,6 +294,7 @@ const briefingLocation = requiredElement<HTMLElement>('#briefing-location')
 const briefingQuote = requiredElement<HTMLElement>('#briefing-quote')
 const briefingLore = requiredElement<HTMLElement>('#briefing-lore')
 const briefingObjectives = requiredElement<HTMLOListElement>('#briefing-objectives')
+const briefingDilemma = requiredElement<HTMLElement>('#briefing-dilemma')
 const menuChapterAct = requiredElement<HTMLElement>('#menu-chapter-act')
 const menuChapterLocation = requiredElement<HTMLElement>('#menu-chapter-location')
 const menuChapterTitle = requiredElement<HTMLElement>('#menu-chapter-title')
@@ -445,18 +455,22 @@ function renderUi(snapshot: ThreeUiSnapshot): void {
   raceName.textContent = race.name
   raceStyle.textContent = race.style
   menuRaceStyle.textContent = setupRace.style
+  menuRaceProtagonist.textContent = setupRace.protagonist
+  menuRaceEthos.textContent = setupRace.ethos
+  menuRaceCost.textContent = setupRace.cost
   briefingTitle.textContent = snapshot.mission.title
   briefingSubtitle.textContent = snapshot.mission.subtitle
   briefingAct.textContent = snapshot.mission.act
   briefingLocation.textContent = snapshot.mission.location
-  briefingBody.textContent = briefingForRace(snapshot.setupRaces.player, snapshot.setupRaces.opponent, snapshot.mission.briefing)
+  briefingBody.textContent = snapshot.mission.briefing
   briefingQuote.textContent = `"${snapshot.mission.quote}" - ${snapshot.mission.commander}`
   briefingLore.textContent = snapshot.mission.lore
+  briefingDilemma.textContent = snapshot.mission.dilemma
   briefingObjectives.innerHTML = snapshot.mission.objectives.map((objective) => `<li>${objective}</li>`).join('')
-  storyModeSubtitle.textContent = snapshot.mission.title.replace(/^Mission \d+: /, '')
+  storyModeSubtitle.textContent = chapterTitle(snapshot.mission.title)
   menuChapterAct.textContent = snapshot.mission.act
   menuChapterLocation.textContent = snapshot.mission.location
-  menuChapterTitle.textContent = snapshot.mission.title.replace(/^Mission \d+: /, '')
+  menuChapterTitle.textContent = chapterTitle(snapshot.mission.title)
   menuChapterLore.textContent = snapshot.mission.lore
   opponentRace.value = snapshot.setupRaces.opponent
   missionSelect.value = snapshot.setup.missionId
@@ -484,7 +498,9 @@ function renderUi(snapshot: ThreeUiSnapshot): void {
     endScreen.hidden = false
     requiredElement<HTMLElement>('#end-title').textContent = snapshot.status === 'won' ? 'Victory' : 'Defeat'
     requiredElement<HTMLElement>('#end-copy').textContent =
-      snapshot.status === 'won' ? `${snapshot.mapName} belongs to your banner.` : 'The dark has claimed another banner.'
+      snapshot.status === 'won'
+        ? `${snapshot.players[snapshot.activePlayer].name} has carried its answer beyond ${snapshot.mapName}.`
+        : 'Your answer failed here. The conflict continues without your consent.'
     renderEndStats(snapshot)
   }
 }
@@ -661,10 +677,8 @@ function formatMode(mode: GameMode): string {
   return 'Local PvP'
 }
 
-function briefingForRace(race: RaceId, opponent: RaceId, missionBriefing: string): string {
-  const playerName = RACE_DEFS[race].name
-  const enemyName = RACE_DEFS[opponent].name
-  return `${missionBriefing} ${playerName} marches against ${enemyName}.`
+function chapterTitle(title: string): string {
+  return title.replace(/^Prologue [IVX]+: /, '')
 }
 
 function formatTerm(value: string): string {

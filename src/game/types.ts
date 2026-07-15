@@ -1,8 +1,8 @@
 export type PlayerId = 1 | 2
 export type GameMode = 'story' | 'skirmish' | 'pvp'
-export type RaceId = 'candlebound' | 'hollow' | 'sepulcher'
+export type RaceId = 'compact' | 'ascendancy' | 'concord'
 export type MapId = 'black-iron-ford' | 'ossuary-crossroads'
-export type MissionId = 'black-iron-ford' | 'lantern-vigil' | 'choir-gate'
+export type MissionId = 'bridge-of-names' | 'mercy-for-the-uncounted' | 'where-roots-remember'
 export type AiPersonality = 'aggressive' | 'economic' | 'fortress'
 export type MatchRuleId = 'standard' | 'fast-ruin' | 'rich-seams'
 export type UnitStance = 'aggressive' | 'defensive' | 'hold'
@@ -54,6 +54,10 @@ export interface RaceDef {
   shortName: string
   tagline: string
   style: string
+  protagonist: string
+  ethos: string
+  cost: string
+  silhouette: string
   color: number
   accent: number
   unitScale: number
@@ -204,6 +208,7 @@ export interface GameState {
   tideCrestAnnounced: boolean
   storyStep: number
   aiWaveTimer: number
+  aiDecisionTimer: number
   nextEventId: number
 }
 

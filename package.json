@@ -1,5 +1,5 @@
 {
-  "name": "rts-prototype",
+  "name": "vowfall-rts",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:visual": "node scripts/visual-qa.mjs"
   },
   "devDependencies": {
     "@types/pathfinding": "^0.1.0",
