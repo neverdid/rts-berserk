@@ -1,7 +1,6 @@
 import {
   HARVEST_SECONDS,
   ORE_PER_TRIP,
-  PASSIVE_AI_ORE_PER_SECOND,
   RACE_DEFS,
   RACE_POWER_DEFS,
   RUIN_TIDE_PERIOD,
@@ -70,14 +69,16 @@ function firstWaveDelay(personality: AiPersonality): number {
 
 export function createInitialState(
   mode: GameMode,
-  playerRace: RaceId = 'candlebound',
-  enemyRace: RaceId = 'hollow',
+  playerRace: RaceId = 'compact',
+  enemyRace: RaceId = 'ascendancy',
   setup: Partial<GameSetup> = {},
 ): GameState {
-  const playerOneRace = RACE_DEFS[playerRace]
-  const playerTwoRace = RACE_DEFS[enemyRace]
-  const missionId = setup.missionId ?? 'black-iron-ford'
+  const missionId = setup.missionId ?? 'bridge-of-names'
   const mission = getStoryMission(missionId)
+  const resolvedPlayerRace = mode === 'story' ? mission.playerRace : playerRace
+  const resolvedEnemyRace = mode === 'story' ? mission.opponentRace : enemyRace
+  const playerOneRace = RACE_DEFS[resolvedPlayerRace]
+  const playerTwoRace = RACE_DEFS[resolvedEnemyRace]
   const mapId = mode === 'story' ? mission.mapId : (setup.mapId ?? 'black-iron-ford')
   const map = getMapDef(mapId)
   const aiPersonality = setup.aiPersonality ?? 'aggressive'
@@ -95,7 +96,7 @@ export function createInitialState(
     players: {
       1: {
         id: PLAYER_ONE,
-        race: playerRace,
+        race: resolvedPlayerRace,
         name: playerOneRace.name,
         ore: STARTING_ORE,
         resolve: 100,
@@ -109,9 +110,9 @@ export function createInitialState(
       },
       2: {
         id: PLAYER_TWO,
-        race: enemyRace,
+        race: resolvedEnemyRace,
         name: playerTwoRace.name,
-        ore: mode === 'pvp' ? STARTING_ORE : 180,
+        ore: mode === 'story' ? 180 : STARTING_ORE,
         resolve: 100,
         color: playerTwoRace.color,
         accent: playerTwoRace.accent,
@@ -139,14 +140,17 @@ export function createInitialState(
     aiWaveTimer:
       mode === 'pvp'
         ? Number.POSITIVE_INFINITY
-        : mode === 'story' && missionId === 'black-iron-ford'
+        : mode === 'story' && missionId === 'bridge-of-names'
           ? 32
           : firstWaveDelay(aiPersonality),
+    aiDecisionTimer: 0,
     nextEventId: 1,
   }
 
   addStartingBase(state, PLAYER_ONE, map.startingBases[PLAYER_ONE].origin, map.startingBases[PLAYER_ONE].direction)
   addStartingBase(state, PLAYER_TWO, map.startingBases[PLAYER_TWO].origin, map.startingBases[PLAYER_TWO].direction)
+  assignOpeningEconomy(state, PLAYER_ONE)
+  assignOpeningEconomy(state, PLAYER_TWO)
 
   addEvent(
     state,
@@ -489,22 +493,22 @@ export function activateRacePower(state: GameState, owner = state.activePlayer):
   }
 
   const owned = livingByOwner(state, owner)
-  if (player.race === 'hollow') {
+  if (player.race === 'ascendancy') {
     const supply = getPlayerSupply(state, owner)
     const def = getEntityDef('vanguard', player.race)
     const command = owned.find((entity) => entity.type === 'command' && !entity.underConstruction)
     if (!command) {
-      return { ok: false, reason: 'The Choir needs a command spire.' }
+      return { ok: false, reason: 'The Ascendancy needs a House of Quiet.' }
     }
     if (supply.used + supply.queued + def.supplyCost > supply.cap) {
-      return { ok: false, reason: 'Army capacity reached. Complete another Vesper Pit.' }
+      return { ok: false, reason: 'Army capacity reached. Complete another Chrysalis Court.' }
     }
     const spawn = findSpawnPoint(state, command)
     const unit = createEntity(state, 'vanguard', owner, spawn)
     const target = offset(spawn, 110, owner === PLAYER_ONE ? 1 : -1)
     unit.order = { type: 'attack-move', target }
     assignNavigation(state, unit, target)
-  } else if (player.race === 'candlebound') {
+  } else if (player.race === 'compact') {
     owned.forEach((entity) => {
       if (entity.kind === 'unit') {
         entity.resolve = 100
@@ -637,11 +641,11 @@ export function getObjectiveText(state: GameState): string {
     return `Destroy the rival command keep. Relics controlled: ${owned}/${state.controlPoints.length}.`
   }
 
-  if (state.missionId === 'lantern-vigil') {
+  if (state.missionId === 'mercy-for-the-uncounted') {
     const duration = getStoryMission(state.missionId).duration ?? 150
     return `Hold the command keep until dawn. ${Math.max(0, Math.ceil(duration - state.time))} seconds remain.`
   }
-  if (state.missionId === 'choir-gate') {
+  if (state.missionId === 'where-roots-remember') {
     if (state.storyStep === 0) {
       const owned = state.controlPoints.filter((point) => point.owner === PLAYER_ONE).length
       return `Capture both reliquaries. ${owned}/${state.controlPoints.length} secured.`
@@ -659,7 +663,7 @@ export function getObjectiveText(state: GameState): string {
     return `Raise ${getEntityDef('barracks', state.players[PLAYER_ONE].race).label}.`
   }
   if (state.storyStep === 2) {
-    return 'Survive the first Ruin Tide crest.'
+    return 'Keep the column together through the first Dread Tide crest.'
   }
   return 'Destroy the rival command keep.'
 }
@@ -703,7 +707,7 @@ function updateRuinTide(state: GameState): void {
   state.ruinTide = Math.round(52 + wave * 48)
 
   if (state.ruinTide >= 84 && !state.tideCrestAnnounced) {
-    addEvent(state, 'The Ruin Tide crests. Keep troops near wards or the dark will slow them.', 'danger')
+    addEvent(state, 'The Dread Tide crests. Keep troops near wards or the Quiet will narrow their will.', 'danger')
     state.tideCrestAnnounced = true
   }
 
@@ -773,17 +777,35 @@ function addStartingBase(state: GameState, owner: PlayerId, origin: Vec2, direct
   createEntity(state, 'worker', owner, { x: origin.x + 118 * direction, y: origin.y + 52 * direction })
   createEntity(state, 'vanguard', owner, { x: origin.x + 152 * direction, y: origin.y - 74 * direction })
 
-  if (owner === PLAYER_TWO && state.mode !== 'pvp') {
+  if (owner === PLAYER_TWO && state.mode === 'story') {
     createEntity(state, 'barracks', owner, { x: origin.x - 145, y: origin.y + 80 })
     createEntity(state, 'turret', owner, { x: origin.x - 48, y: origin.y + 150 })
-    if (state.aiPersonality === 'aggressive') {
+    if (state.missionId === 'mercy-for-the-uncounted' || state.aiPersonality === 'aggressive') {
       createEntity(state, 'vanguard', owner, { x: origin.x - 185, y: origin.y - 30 })
-    } else if (state.aiPersonality === 'economic') {
-      createEntity(state, 'worker', owner, { x: origin.x - 96, y: origin.y - 95 })
-    } else {
+    }
+    if (state.aiPersonality === 'fortress') {
       createEntity(state, 'turret', owner, { x: origin.x - 170, y: origin.y - 120 })
     }
   }
+}
+
+function assignOpeningEconomy(state: GameState, owner: PlayerId): void {
+  const workers = livingByOwner(state, owner).filter((entity) => entity.type === 'worker')
+  const command = livingByOwner(state, owner).find((entity) => entity.type === 'command')
+  const nearbySeams = state.resources
+    .filter((resource) => resource.amount > 0)
+    .sort(
+      (a, b) =>
+        distance(command?.position ?? workers[0]?.position ?? a.position, a.position) -
+        distance(command?.position ?? workers[0]?.position ?? b.position, b.position),
+    )
+    .slice(0, 2)
+  workers.forEach((worker, index) => {
+    const seam = nearbySeams[index % nearbySeams.length]
+    if (seam) {
+      issueGather(state, [worker.id], seam.id, owner)
+    }
+  })
 }
 
 function updateResearch(state: GameState, dt: number): void {
@@ -853,6 +875,13 @@ function updateProduction(state: GameState, dt: number): void {
       entity.queue.shift()
       const spawn = findSpawnPoint(state, entity)
       const unit = createEntity(state, task.type, entity.owner, spawn)
+      if (task.type === 'worker' && !entity.rallyPoint) {
+        const seam = nearestResource(state, spawn)
+        if (seam) {
+          issueGather(state, [unit.id], seam.id, entity.owner)
+          return
+        }
+      }
       const target = entity.rallyPoint ?? offset(spawn, 52, entity.owner === PLAYER_ONE ? 1 : -1)
       unit.order = { type: 'move', target }
       assignNavigation(state, unit, target)
@@ -1147,13 +1176,11 @@ function updateAI(state: GameState, dt: number): void {
     return
   }
 
-  if (state.mode === 'story' && state.missionId === 'black-iron-ford' && state.storyStep === 0) {
-    return
+  state.aiDecisionTimer -= dt
+  if (state.aiDecisionTimer <= 0) {
+    runAiMacro(state)
+    state.aiDecisionTimer = 0.72
   }
-
-  const incomeMultiplier =
-    state.aiPersonality === 'economic' ? 1.2 : state.aiPersonality === 'aggressive' ? 1.06 : 0.96
-  state.players[PLAYER_TWO].ore += PASSIVE_AI_ORE_PER_SECOND * incomeMultiplier * dt
 
   const aiPlayer = state.players[PLAYER_TWO]
   const aiPower = RACE_POWER_DEFS[aiPlayer.race]
@@ -1166,27 +1193,16 @@ function updateAI(state: GameState, dt: number): void {
     activateRacePower(state, PLAYER_TWO)
   }
 
-  updateAiResearch(state)
-
-  const enemyBuildings = livingByOwner(state, PLAYER_TWO).filter(
-    (entity) => entity.kind === 'building' && !entity.underConstruction,
-  )
-  const barracks = enemyBuildings.find((entity) => entity.type === 'barracks')
-  if (barracks && barracks.queue.length < 3) {
-    const army = livingByOwner(state, PLAYER_TWO).filter((entity) => entity.kind === 'unit' && entity.damage > 0)
-    const arbalests = army.filter((entity) => entity.type === 'skirmisher').length
-    const oathbound = army.filter((entity) => entity.type === 'vanguard').length
-    const rangedUnlocked = aiPlayer.researched.includes('tier-two')
-    const wantsArbalest = rangedUnlocked && (state.ruinTide >= 70 || oathbound > arbalests + 1)
-    const preferred: UnitType = wantsArbalest ? 'skirmisher' : 'vanguard'
-    if (aiPlayer.ore >= productionProfile(state, PLAYER_TWO, preferred).cost) {
-      startProduction(state, barracks.id, preferred, PLAYER_TWO)
-    }
+  const openingTruce = state.mode === 'story' && state.missionId === 'bridge-of-names' && state.storyStep === 0
+  if (openingTruce) {
+    return
   }
 
   state.aiWaveTimer -= dt
   if (state.aiWaveTimer <= 0) {
-    const army = livingByOwner(state, PLAYER_TWO).filter((entity) => entity.kind === 'unit' && entity.damage > 0)
+    const army = livingByOwner(state, PLAYER_TWO).filter(
+      (entity) => entity.kind === 'unit' && entity.type !== 'worker' && entity.damage > 0,
+    )
     const minimumArmy = state.aiPersonality === 'aggressive' ? 2 : state.aiPersonality === 'economic' ? 4 : 6
     const openRelic = state.controlPoints.find((point) => point.owner !== PLAYER_TWO)
     const target = chooseAiAttackTarget(state)
@@ -1200,6 +1216,167 @@ function updateAI(state: GameState, dt: number): void {
     const baseDelay = state.aiPersonality === 'aggressive' ? 22 : state.aiPersonality === 'economic' ? 31 : 38
     state.aiWaveTimer = state.ruinTide >= 75 ? baseDelay * 0.76 : baseDelay
   }
+}
+
+function runAiMacro(state: GameState): void {
+  const owned = livingByOwner(state, PLAYER_TWO)
+  const player = state.players[PLAYER_TWO]
+  const command = owned.find((entity) => entity.type === 'command' && !entity.underConstruction)
+  const workers = owned.filter((entity) => entity.type === 'worker')
+
+  workers
+    .filter((worker) => worker.order.type === 'idle')
+    .forEach((worker) => {
+      const seam = nearestResource(state, worker.position)
+      if (seam) {
+        issueGather(state, [worker.id], seam.id, PLAYER_TWO)
+      }
+    })
+
+  if (command) {
+    const queuedWorkers = command.queue.filter((task) => task.type === 'worker').length
+    const workerTarget = state.aiPersonality === 'economic' ? 7 : state.aiPersonality === 'fortress' ? 6 : 5
+    const workerProfile = productionProfile(state, PLAYER_TWO, 'worker')
+    if (workers.length + queuedWorkers < workerTarget && command.queue.length < 2 && player.ore >= workerProfile.cost) {
+      startProduction(state, command.id, 'worker', PLAYER_TWO)
+    }
+  }
+
+  maintainAiInfrastructure(state, command, workers)
+  updateAiResearch(state)
+  trainAiArmy(state)
+  respondToAiThreats(state)
+}
+
+function maintainAiInfrastructure(state: GameState, command: Entity | undefined, workers: Entity[]): void {
+  if (!command) {
+    return
+  }
+  const owned = livingByOwner(state, PLAYER_TWO)
+  const halls = owned.filter((entity) => entity.type === 'barracks')
+  const turrets = owned.filter((entity) => entity.type === 'turret')
+  const supply = getPlayerSupply(state, PLAYER_TWO)
+  const hallTarget = supply.cap - supply.used - supply.queued <= 4 ? 2 : 1
+  const desiredTurrets = state.aiPersonality === 'fortress' ? 2 : state.time >= 70 ? 1 : 0
+  const builder = workers.find((worker) => worker.order.type !== 'build')
+
+  if (halls.length < hallTarget && builder) {
+    tryAiBuilding(state, builder, command, 'barracks', halls.length)
+    return
+  }
+  if (turrets.length < desiredTurrets && builder) {
+    tryAiBuilding(state, builder, command, 'turret', turrets.length)
+  }
+}
+
+function tryAiBuilding(
+  state: GameState,
+  worker: Entity,
+  command: Entity,
+  buildingType: BuildingType,
+  index: number,
+): boolean {
+  const def = getEntityDef(buildingType, state.players[PLAYER_TWO].race)
+  if (state.players[PLAYER_TWO].ore < def.cost) {
+    return false
+  }
+  const inward = command.position.x > state.mapSize.x / 2 ? -1 : 1
+  const offsets =
+    buildingType === 'barracks'
+      ? [
+          { x: 168 * inward, y: 92 },
+          { x: 225 * inward, y: -105 },
+          { x: 112 * inward, y: -205 },
+          { x: 270 * inward, y: 185 },
+        ]
+      : [
+          { x: 76 * inward, y: 190 },
+          { x: 188 * inward, y: -176 },
+          { x: 255 * inward, y: 45 },
+          { x: 72 * inward, y: -240 },
+        ]
+  for (let offsetIndex = 0; offsetIndex < offsets.length; offsetIndex += 1) {
+    const offsetValue = offsets[(offsetIndex + index) % offsets.length]
+    const position = { x: command.position.x + offsetValue.x, y: command.position.y + offsetValue.y }
+    if (canPlaceBuilding(state, position, def.radius)) {
+      return startBuilding(state, worker.id, buildingType, position, PLAYER_TWO).ok
+    }
+  }
+  return false
+}
+
+function trainAiArmy(state: GameState): void {
+  const player = state.players[PLAYER_TWO]
+  const barracks = livingByOwner(state, PLAYER_TWO).filter(
+    (entity) => entity.type === 'barracks' && !entity.underConstruction,
+  )
+  barracks.forEach((hall) => {
+    if (hall.queue.length >= 2) {
+      return
+    }
+    const preferred = chooseAiUnitType(state)
+    const profile = productionProfile(state, PLAYER_TWO, preferred)
+    if (player.ore >= profile.cost) {
+      startProduction(state, hall.id, preferred, PLAYER_TWO)
+    }
+  })
+}
+
+function chooseAiUnitType(state: GameState): UnitType {
+  const player = state.players[PLAYER_TWO]
+  if (!player.researched.includes('tier-two')) {
+    return 'vanguard'
+  }
+  const visibleEnemies = livingByOwner(state, PLAYER_ONE).filter(
+    (entity) => entity.kind === 'unit' && isEntityVisibleTo(state, entity, PLAYER_TWO),
+  )
+  const enemyVanguards = visibleEnemies.filter((entity) => entity.type === 'vanguard').length
+  const enemySkirmishers = visibleEnemies.filter((entity) => entity.type === 'skirmisher').length
+  const ownArmy = livingByOwner(state, PLAYER_TWO).filter(
+    (entity) => entity.kind === 'unit' && entity.type !== 'worker' && entity.damage > 0,
+  )
+  const ownVanguards = ownArmy.filter((entity) => entity.type === 'vanguard').length
+  const ownSkirmishers = ownArmy.filter((entity) => entity.type === 'skirmisher').length
+
+  if (enemyVanguards > enemySkirmishers || state.aiPersonality === 'fortress') {
+    return ownSkirmishers <= ownVanguards ? 'skirmisher' : 'vanguard'
+  }
+  if (enemySkirmishers > enemyVanguards) {
+    return ownVanguards <= ownSkirmishers + 1 ? 'vanguard' : 'skirmisher'
+  }
+  return state.ruinTide >= 70 || ownVanguards > ownSkirmishers + 1 ? 'skirmisher' : 'vanguard'
+}
+
+function respondToAiThreats(state: GameState): void {
+  const owned = livingByOwner(state, PLAYER_TWO)
+  const buildings = owned.filter((entity) => entity.kind === 'building')
+  const army = owned.filter((entity) => entity.kind === 'unit' && entity.type !== 'worker' && entity.damage > 0)
+  if (army.length === 0 || buildings.length === 0) {
+    return
+  }
+  const threat = livingByOwner(state, PLAYER_ONE)
+    .filter((entity) => entity.kind === 'unit')
+    .filter((entity) => buildings.some((building) => distance(entity.position, building.position) <= 420))
+    .sort((a, b) => distance(a.position, buildings[0].position) - distance(b.position, buildings[0].position))[0]
+  if (threat) {
+    const defenders = army.filter((unit) => unit.hp / unit.maxHp >= 0.34)
+    if (defenders.length > 0) {
+      issueAttack(state, defenders.map((unit) => unit.id), threat.id, PLAYER_TWO)
+    }
+    return
+  }
+
+  const averageHealth = army.reduce((total, unit) => total + unit.hp / unit.maxHp, 0) / army.length
+  const averageResolve = army.reduce((total, unit) => total + unit.resolve, 0) / army.length
+  if (army.length >= 3 && (averageHealth < 0.46 || averageResolve < 50)) {
+    issueRetreat(state, army.map((unit) => unit.id), PLAYER_TWO)
+  }
+}
+
+function nearestResource(state: GameState, position: Vec2): ResourceNode | undefined {
+  return state.resources
+    .filter((resource) => resource.amount > 0)
+    .sort((a, b) => distance(position, a.position) - distance(position, b.position))[0]
 }
 
 function updateAiResearch(state: GameState): void {
@@ -1245,30 +1422,30 @@ function updateStoryObjectives(state: GameState): void {
     return
   }
 
-  if (state.missionId === 'lantern-vigil') {
+  if (state.missionId === 'mercy-for-the-uncounted') {
     if (state.storyStep === 0 && state.time >= 45) {
       state.storyStep = 1
-      addEvent(state, 'The first bell passes. The dark is gathering at the crossroads.', 'danger')
+      addEvent(state, 'The first clinic column is clear. Compact companies are closing on the road.', 'danger')
     }
     if (state.storyStep === 1 && state.time >= 95) {
       state.storyStep = 2
-      addEvent(state, 'Final watch. Hold the keep until the eastern clouds pale.', 'success')
+      addEvent(state, 'The final patients are moving. Hold the House of Quiet until the eastern clouds pale.', 'success')
     }
     return
   }
 
-  if (state.missionId === 'choir-gate') {
+  if (state.missionId === 'where-roots-remember') {
     if (
       state.storyStep === 0 &&
       state.controlPoints.length > 0 &&
       state.controlPoints.every((point) => point.owner === PLAYER_ONE)
     ) {
       state.storyStep = 1
-      addEvent(state, 'Both reliquaries answer the Remnant. Reach the Black-Iron Age.', 'success')
+      addEvent(state, 'Both memory stones answer Tavra. Reach the Black-Iron Age.', 'success')
     }
     if (state.storyStep === 1 && state.players[PLAYER_ONE].researched.includes('tier-two')) {
       state.storyStep = 2
-      addEvent(state, 'The old forge wakes. Break the Choir Gate.', 'success')
+      addEvent(state, 'The resonance forge wakes. Break the House of Quiet.', 'success')
     }
     return
   }
@@ -1289,7 +1466,7 @@ function updateStoryObjectives(state: GameState): void {
     state.storyStep = 2
     addEvent(
       state,
-      `${getEntityDef('barracks', state.players[PLAYER_ONE].race).label} raised. Survive the next Ruin Tide crest.`,
+      `${getEntityDef('barracks', state.players[PLAYER_ONE].race).label} raised. Hold the road through the next Dread Tide crest.`,
       'success',
     )
   }
@@ -1332,14 +1509,14 @@ function updateWinState(state: GameState): void {
   const p1Command = state.entities.some((entity) => entity.owner === PLAYER_ONE && entity.type === 'command')
   const p2Command = state.entities.some((entity) => entity.owner === PLAYER_TWO && entity.type === 'command')
 
-  if (state.mode === 'story' && state.missionId === 'lantern-vigil') {
+  if (state.mode === 'story' && state.missionId === 'mercy-for-the-uncounted') {
     const duration = getStoryMission(state.missionId).duration ?? 150
     if (!p1Command || state.time >= duration) {
       state.status = p1Command ? 'won' : 'lost'
       state.winner = p1Command ? PLAYER_ONE : PLAYER_TWO
       addEvent(
         state,
-        p1Command ? 'Victory. Dawn finds the lanterns still burning.' : 'Defeat. The last lantern goes dark.',
+        p1Command ? 'Victory. Dawn finds the final clinic column beyond the valley.' : 'Defeat. The evacuation road is closed.',
         p1Command ? 'success' : 'danger',
       )
     }
@@ -1349,14 +1526,18 @@ function updateWinState(state: GameState): void {
   if (!p1Command || !p2Command) {
     state.status = p1Command ? 'won' : 'lost'
     state.winner = p1Command ? PLAYER_ONE : PLAYER_TWO
-    addEvent(state, p1Command ? 'Victory. Dawn reaches the ford.' : 'Defeat. The valley joins the Choir.', p1Command ? 'success' : 'danger')
+    addEvent(
+      state,
+      p1Command ? 'Victory. Your answer to Bellgrave survives another morning.' : 'Defeat. Another promise is written by the victor.',
+      p1Command ? 'success' : 'danger',
+    )
   }
 }
 
 function productionProfile(state: GameState, owner: PlayerId, type: UnitType): { cost: number; time: number } {
   const player = state.players[owner]
   const def = getEntityDef(type, player.race)
-  const pitBroods = player.race === 'hollow' && player.researched.includes('pit-broods') && type === 'vanguard'
+  const pitBroods = player.race === 'ascendancy' && player.researched.includes('pit-broods') && type === 'vanguard'
   return {
     cost: Math.round(def.cost * (pitBroods ? 0.82 : 1)),
     time: def.buildTime * (pitBroods ? 0.82 : 1),

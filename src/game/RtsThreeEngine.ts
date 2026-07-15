@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { RACE_DEFS, RACE_POWER_DEFS, getEntityDef } from './catalog'
-import { MAP_SIZE, STARTING_BASES, getMapDef } from './map'
+import { MAP_SIZE, STARTING_BASES, getMapDef, isInTerrainZone } from './map'
 import { getStoryMission } from './story'
 import { RESEARCH_DEFS, researchForRace } from './technology'
 import {
@@ -57,6 +57,8 @@ interface EntityVisual {
   healthFill: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
   lastPosition: Vec2
   lastCooldown: number
+  lastHp: number
+  hitUntil: number
 }
 
 interface ResourceVisual {
@@ -168,7 +170,7 @@ export class RtsThreeEngine {
   private readonly renderer: THREE.WebGLRenderer
   private readonly scene = new THREE.Scene()
   private readonly camera = new THREE.PerspectiveCamera(46, 1, 8, 5200)
-  private readonly clock = new THREE.Clock()
+  private readonly timer = new THREE.Timer()
   private readonly raycaster = new THREE.Raycaster()
   private readonly pointerNdc = new THREE.Vector2()
   private readonly cameraTarget = new THREE.Vector3(520, 0, 980)
@@ -181,6 +183,7 @@ export class RtsThreeEngine {
   private readonly controlGroups = new Map<number, string[]>()
   private readonly heldKeys = new Set<string>()
   private readonly commandPulses: CommandPulse[] = []
+  private readonly waterMeshes: Array<THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>> = []
   private readonly projectileVisuals = new Map<string, THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>>()
   private readonly controlPointVisuals = new Map<string, ControlPointVisual>()
   private readonly selectionBox: HTMLDivElement
@@ -195,10 +198,10 @@ export class RtsThreeEngine {
 
   private state: GameState = createInitialState('story')
   private selectedIds: string[] = []
-  private selectedRace: RaceId = 'candlebound'
-  private selectedOpponentRace: RaceId = 'hollow'
+  private selectedRace: RaceId = 'compact'
+  private selectedOpponentRace: RaceId = 'ascendancy'
   private selectedMap: MapId = 'black-iron-ford'
-  private selectedMission: MissionId = 'black-iron-ford'
+  private selectedMission: MissionId = 'bridge-of-names'
   private selectedAi: AiPersonality = 'aggressive'
   private selectedRule: MatchRuleId = 'standard'
   private missionStarted = false
@@ -223,14 +226,15 @@ export class RtsThreeEngine {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8))
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.24
+    this.renderer.toneMappingExposure = 1.42
     this.renderer.domElement.className = 'three-canvas'
-    this.renderer.domElement.setAttribute('aria-label', 'Ashen Dominion 3D battlefield')
+    this.renderer.domElement.setAttribute('aria-label', 'Vowfall 3D battlefield')
     this.renderer.domElement.tabIndex = 0
     this.container.append(this.renderer.domElement)
+    this.timer.connect(document)
 
     this.selectionBox = document.createElement('div')
     this.selectionBox.className = 'selection-box'
@@ -248,8 +252,8 @@ export class RtsThreeEngine {
     }
     this.minimapContext = minimapContext
 
-    this.scene.background = new THREE.Color(0x08100e)
-    this.scene.fog = new THREE.FogExp2(0x0a1411, 0.00048)
+    this.scene.background = new THREE.Color(0x0b1512)
+    this.scene.fog = new THREE.FogExp2(0x101a17, 0.00044)
     this.camera.up.set(0, 1, 0)
     this.scene.add(this.worldRoot, this.dynamicRoot, this.effectRoot)
     this.addLighting()
@@ -277,12 +281,13 @@ export class RtsThreeEngine {
     this.destroyed = true
     cancelAnimationFrame(this.frameId)
     this.resizeObserver.disconnect()
+    this.timer.dispose()
     this.renderer.dispose()
     this.container.replaceChildren()
   }
 
   private addLighting(): void {
-    const hemisphere = new THREE.HemisphereLight(0x9aafa3, 0x100d0a, 1.72)
+    const hemisphere = new THREE.HemisphereLight(0xb4c5ba, 0x17120e, 2.08)
     this.scene.add(hemisphere)
 
     const moon = new THREE.DirectionalLight(0xb8c8c2, 3.2)
@@ -324,7 +329,7 @@ export class RtsThreeEngine {
     geometry.computeVertexNormals()
     const groundTexture = this.createGroundTexture()
     const material = new THREE.MeshStandardMaterial({
-      color: 0x34433b,
+      color: 0x46564b,
       map: groundTexture,
       bumpMap: groundTexture,
       bumpScale: 2.8,
@@ -382,9 +387,10 @@ export class RtsThreeEngine {
     this.terrainRoot.children.forEach((child) => this.disposeObject(child))
     this.terrainRoot.clear()
     this.controlPointVisuals.clear()
+    this.waterMeshes.length = 0
     const map = getMapDef(this.state.mapId)
-    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x48594d, roughness: 1, metalness: 0 })
-    const narrowRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x3b4a40, roughness: 1, metalness: 0 })
+    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x514d42, roughness: 1, metalness: 0 })
+    const narrowRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x403f37, roughness: 1, metalness: 0 })
     map.lanes.forEach((lane, index) => this.addRoad(lane, index === 0 ? 92 : 62, index === 0 ? roadMaterial : narrowRoadMaterial))
 
     map.zones.forEach((zone) => {
@@ -393,7 +399,7 @@ export class RtsThreeEngine {
         zone.shape === 'circle'
           ? new THREE.CylinderGeometry(zone.radius ?? 100, zone.radius ?? 100, zone.kind === 'high-ground' ? 8 : 3, 52)
           : new THREE.BoxGeometry(size.x, zone.kind === 'high-ground' ? 8 : 3, size.y)
-      const colors = { 'high-ground': 0x405047, forest: 0x18251f, ford: 0x111d1b, cursed: 0x32151b }
+      const colors = { 'high-ground': 0x39483f, forest: 0x1c2c24, ford: 0x172724, cursed: 0x32171d }
       const patch = new THREE.Mesh(
         geometry,
         new THREE.MeshStandardMaterial({
@@ -407,10 +413,32 @@ export class RtsThreeEngine {
       patch.position.set(zone.position.x, zone.kind === 'high-ground' ? -1 : -2.2, zone.position.y)
       patch.receiveShadow = true
       this.terrainRoot.add(patch)
+      if (zone.kind === 'ford') {
+        const water = new THREE.Mesh(
+          new THREE.PlaneGeometry(size.x * 0.98, size.y * 0.92, 28, 10),
+          new THREE.MeshPhysicalMaterial({
+            color: 0x24575c,
+            emissive: 0x0a2729,
+            emissiveIntensity: 0.48,
+            roughness: 0.22,
+            metalness: 0.16,
+            clearcoat: 0.72,
+            clearcoatRoughness: 0.2,
+            transparent: true,
+            opacity: 0.72,
+            depthWrite: false,
+          }),
+        )
+        water.rotation.x = -Math.PI / 2
+        water.position.set(zone.position.x, 0.7, zone.position.y)
+        water.receiveShadow = true
+        this.terrainRoot.add(water)
+        this.waterMeshes.push(water)
+      }
     })
 
-    this.addBaseDais(map.startingBases[PLAYER_ONE].origin, 0xc4a85f)
-    this.addBaseDais(map.startingBases[PLAYER_TWO].origin, 0x95383d)
+    this.addBaseDais(map.startingBases[PLAYER_ONE].origin, this.state.players[PLAYER_ONE].accent)
+    this.addBaseDais(map.startingBases[PLAYER_TWO].origin, this.state.players[PLAYER_TWO].accent)
     map.blockers.forEach((blocker, index) => {
       if (blocker.kind === 'circle') {
         const radius = blocker.radius ?? 60
@@ -469,6 +497,11 @@ export class RtsThreeEngine {
       this.terrainRoot.add(beam)
       this.controlPointVisuals.set(point.id, { ring, beam })
     })
+    if (map.zones.some((zone) => zone.kind === 'ford')) {
+      this.addFordBridge({ x: 948, y: 836 }, { x: 1292, y: 690 })
+    }
+    this.addGroundCover()
+    this.addForestCanopies()
     this.addDeadForest()
   }
 
@@ -542,6 +575,125 @@ export class RtsThreeEngine {
     }
   }
 
+  private addFordBridge(start: Vec2, end: Vec2): void {
+    const plankMaterial = new THREE.MeshStandardMaterial({ color: 0x4e4032, roughness: 0.94, metalness: 0.01 })
+    const railMaterial = new THREE.MeshStandardMaterial({ color: 0x25231f, roughness: 0.88, metalness: 0.08 })
+    const length = distance(start, end)
+    const heading = -Math.atan2(end.y - start.y, end.x - start.x)
+    const planks = 24
+    for (let index = 0; index < planks; index += 1) {
+      const ratio = (index + 0.5) / planks
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(length / planks * 0.94, 5, 52), plankMaterial)
+      plank.position.set(
+        THREE.MathUtils.lerp(start.x, end.x, ratio),
+        4 + Math.sin(ratio * Math.PI) * 2.4,
+        THREE.MathUtils.lerp(start.y, end.y, ratio),
+      )
+      plank.rotation.y = heading
+      plank.rotation.z = Math.sin(index * 1.9) * 0.012
+      plank.castShadow = true
+      plank.receiveShadow = true
+      this.terrainRoot.add(plank)
+    }
+    const center = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    ;[-31, 31].forEach((side) => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(length, 5, 5), railMaterial)
+      rail.position.set(
+        center.x + Math.sin(heading) * side,
+        12,
+        center.y + Math.cos(heading) * side,
+      )
+      rail.rotation.y = heading
+      rail.castShadow = true
+      this.terrainRoot.add(rail)
+    })
+  }
+
+  private addGroundCover(): void {
+    const map = getMapDef(this.state.mapId)
+    const grass = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(1.2, 9, 3),
+      new THREE.MeshStandardMaterial({ color: 0x52634d, roughness: 1, side: THREE.DoubleSide }),
+      420,
+    )
+    const dummy = new THREE.Object3D()
+    let used = 0
+    for (let index = 0; index < 520 && used < 420; index += 1) {
+      const position = {
+        x: 42 + ((index * 379 + (index % 7) * 71) % (this.state.mapSize.x - 84)),
+        y: 42 + ((index * 613 + (index % 11) * 43) % (this.state.mapSize.y - 84)),
+      }
+      const nearBase = Object.values(map.startingBases).some((base) => distance(position, base.origin) < 245)
+      const inHarshZone = map.zones.some(
+        (zone) => (zone.kind === 'ford' || zone.kind === 'cursed') && isInTerrainZone(position, zone),
+      )
+      const nearRoad = map.lanes.some((lane) =>
+        lane.slice(1).some((point, laneIndex) => pointToSegmentDistance(position, lane[laneIndex], point) < 54),
+      )
+      if (nearBase || inHarshZone || nearRoad) {
+        continue
+      }
+      dummy.position.set(position.x, 4, position.y)
+      dummy.rotation.set(0, index * 1.73, ((index % 5) - 2) * 0.025)
+      const scale = 0.58 + (index % 7) * 0.08
+      dummy.scale.set(scale, scale, scale)
+      dummy.updateMatrix()
+      grass.setMatrixAt(used, dummy.matrix)
+      used += 1
+    }
+    grass.count = used
+    grass.instanceMatrix.needsUpdate = true
+    grass.receiveShadow = true
+    this.terrainRoot.add(grass)
+  }
+
+  private addForestCanopies(): void {
+    const forestZones = getMapDef(this.state.mapId).zones.filter((zone) => zone.kind === 'forest')
+    const capacity = forestZones.length * 28
+    if (capacity === 0) {
+      return
+    }
+    const trunks = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(2.4, 4.2, 30, 6),
+      new THREE.MeshStandardMaterial({ color: 0x29251f, roughness: 1 }),
+      capacity,
+    )
+    const crowns = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(15, 38, 7),
+      new THREE.MeshStandardMaterial({ color: 0x20372a, roughness: 0.96 }),
+      capacity,
+    )
+    const dummy = new THREE.Object3D()
+    let used = 0
+    forestZones.forEach((zone, zoneIndex) => {
+      const radius = zone.radius ?? Math.min(zone.size?.x ?? 200, zone.size?.y ?? 200) / 2
+      for (let index = 0; index < 28; index += 1) {
+        const angle = index * 2.399 + zoneIndex * 0.91
+        const radial = radius * (0.2 + ((index * 37) % 73) / 100)
+        const x = zone.position.x + Math.cos(angle) * radial
+        const z = zone.position.y + Math.sin(angle) * radial
+        const scale = 0.7 + (index % 6) * 0.09
+        dummy.position.set(x, 15 * scale, z)
+        dummy.rotation.set(0, angle, 0)
+        dummy.scale.set(scale, scale, scale)
+        dummy.updateMatrix()
+        trunks.setMatrixAt(used, dummy.matrix)
+        dummy.position.y = 39 * scale
+        dummy.rotation.y = angle + 0.4
+        dummy.updateMatrix()
+        crowns.setMatrixAt(used, dummy.matrix)
+        used += 1
+      }
+    })
+    trunks.count = used
+    crowns.count = used
+    trunks.instanceMatrix.needsUpdate = true
+    crowns.instanceMatrix.needsUpdate = true
+    trunks.castShadow = true
+    crowns.castShadow = true
+    this.terrainRoot.add(trunks, crowns)
+  }
+
   private createFogTexture(): THREE.CanvasTexture {
     this.fogCanvas.width = 128
     this.fogCanvas.height = 88
@@ -612,6 +764,10 @@ export class RtsThreeEngine {
       }
 
       const moved = distance(visual.lastPosition, entity.position) > 0.35
+      if (entity.hp < visual.lastHp - 0.01) {
+        visual.hitUntil = time + 145
+        this.pulseImpact(entity.position, this.state.players[entity.owner].accent)
+      }
       const bob = entity.kind === 'unit' && moved ? Math.sin(time * 0.012 + entity.position.x * 0.02) * 1.25 : 0
       visual.root.position.set(entity.position.x, entity.underConstruction ? -5 : bob, entity.position.y)
       const modelScale = entity.kind === 'unit' ? 1.14 : 1
@@ -626,6 +782,10 @@ export class RtsThreeEngine {
         const targetHeading = Math.atan2(dx, dz)
         visual.model.rotation.y = lerpAngle(visual.model.rotation.y, targetHeading, 0.2)
       }
+      const attackMotion =
+        entity.kind === 'unit' && entity.attackCooldown > 0 && entity.cooldown > entity.attackCooldown * 0.72
+      const attackOffset = entity.type === 'skirmisher' ? -entity.radius * 0.11 : entity.radius * 0.16
+      visual.model.position.z = THREE.MathUtils.lerp(visual.model.position.z, attackMotion ? attackOffset : 0, 0.28)
       visual.model.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) {
           return
@@ -635,6 +795,11 @@ export class RtsThreeEngine {
           if ('opacity' in material) {
             material.transparent = entity.underConstruction
             material.opacity = entity.underConstruction ? 0.54 : 1
+          }
+          if (material instanceof THREE.MeshStandardMaterial) {
+            const hit = time < visual.hitUntil
+            material.emissive.setHex(hit ? 0xffd7ad : 0x000000)
+            material.emissiveIntensity = hit ? 1.65 : 0
           }
         })
       })
@@ -654,6 +819,7 @@ export class RtsThreeEngine {
       visual.healthFill.material.color.set(entity.resolve < 55 ? 0xd9af57 : hpRatio < 0.34 ? 0xc84a4f : 0x8ecf77)
 
       visual.lastCooldown = entity.cooldown
+      visual.lastHp = entity.hp
       visual.lastPosition = { ...entity.position }
     })
   }
@@ -709,6 +875,8 @@ export class RtsThreeEngine {
       healthFill,
       lastPosition: { ...entity.position },
       lastCooldown: entity.cooldown,
+      lastHp: entity.hp,
+      hitUntil: 0,
     }
   }
 
@@ -720,6 +888,8 @@ export class RtsThreeEngine {
     const accent = new THREE.MeshStandardMaterial({ color: player.accent, roughness: 0.54, metalness: 0.34 })
     const dark = new THREE.MeshStandardMaterial({ color: 0x1b2420, roughness: 0.86, metalness: 0.1 })
     const stone = new THREE.MeshStandardMaterial({ color: 0x465149, roughness: 0.9, metalness: 0.04 })
+    const flesh = new THREE.MeshStandardMaterial({ color: 0xb9977f, roughness: 0.92, metalness: 0 })
+    const porcelain = new THREE.MeshStandardMaterial({ color: 0xd8cec0, roughness: 0.38, metalness: 0.08 })
     const r = entity.radius
 
     const add = (geometry: THREE.BufferGeometry, material: THREE.Material, position: [number, number, number]) => {
@@ -772,17 +942,79 @@ export class RtsThreeEngine {
       add(new THREE.ConeGeometry(r * 0.34, r * 0.86, 7), accent, [0, r * 2.18, 0])
     }
 
-    if (race.id === 'hollow') {
+    if (race.id === 'compact' && entity.kind === 'unit') {
+      const faceHeight = entity.type === 'worker' ? r * 1.47 : r * 1.74
+      add(new THREE.BoxGeometry(r * 0.34, r * 0.25, r * 0.09), flesh, [0, faceHeight, r * 0.28])
+      const shoulderCloth = add(
+        new THREE.BoxGeometry(r * 0.92, r * 0.14, r * 0.52),
+        primary,
+        [0, r * 1.3, -r * 0.05],
+      )
+      shoulderCloth.rotation.z = entity.type === 'worker' ? 0.08 : 0
+    }
+    if (race.id === 'ascendancy') {
       for (let index = -1; index <= 1; index += 1) {
         const spike = add(new THREE.ConeGeometry(r * 0.12, r * 0.72, 5), dark, [index * r * 0.32, r * 1.34, -r * 0.45])
         spike.rotation.x = -0.38
       }
+      if (entity.kind === 'unit') {
+        const maskHeight = entity.type === 'worker' ? r * 1.48 : r * 1.78
+        const mask = add(
+          new THREE.BoxGeometry(r * 0.48, r * 0.5, r * 0.11),
+          porcelain,
+          [r * 0.07, maskHeight, r * 0.3],
+        )
+        mask.rotation.z = -0.08
+        add(new THREE.ConeGeometry(r * 0.28, r * 0.7, 5), accent, [r * 0.62, r * 1.35, -r * 0.1]).rotation.z = -0.58
+      } else {
+        ;[-1, 1].forEach((side) => {
+          const rib = add(
+            new THREE.ConeGeometry(r * 0.13, r * 1.35, 5),
+            porcelain,
+            [side * r * 0.66, r * 1.2, -r * 0.12],
+          )
+          rib.rotation.z = side * 0.34
+        })
+      }
     }
-    if (race.id === 'sepulcher' && entity.kind === 'unit') {
-      add(new THREE.BoxGeometry(r * 1.12, r * 0.22, r * 0.74), stone, [0, r * 1.14, 0])
+    if (race.id === 'concord') {
+      if (entity.kind === 'unit') {
+        add(new THREE.BoxGeometry(r * 1.12, r * 0.22, r * 0.74), stone, [0, r * 1.14, 0])
+        if (entity.type === 'skirmisher') {
+          ;[-1, 1].forEach((side) => {
+            const branch = add(
+              new THREE.ConeGeometry(r * 0.06, r * 0.56, 5),
+              dark,
+              [side * r * 0.2, r * 2.02, -r * 0.02],
+            )
+            branch.rotation.z = side * 0.34
+          })
+        }
+      } else {
+        for (let index = 0; index < 5; index += 1) {
+          const angle = index / 5 * Math.PI * 2
+          const root = add(
+            new THREE.ConeGeometry(r * 0.13, r * 0.9, 6),
+            dark,
+            [Math.cos(angle) * r * 0.74, r * 0.35, Math.sin(angle) * r * 0.74],
+          )
+          root.rotation.z = Math.cos(angle) * 0.7
+          root.rotation.x = Math.sin(angle) * 0.7
+        }
+      }
     }
     if (entity.kind === 'unit') {
-      group.scale.setScalar(1.14)
+      if (race.id === 'ascendancy') {
+        group.scale.set(1.08, 1.28, 1.08)
+      } else if (race.id === 'concord' && entity.type === 'worker') {
+        group.scale.set(1.28, 0.9, 1.28)
+      } else if (race.id === 'concord' && entity.type === 'vanguard') {
+        group.scale.set(1.32, 1.48, 1.32)
+      } else if (race.id === 'concord') {
+        group.scale.set(0.98, 1.26, 0.98)
+      } else {
+        group.scale.setScalar(1.14)
+      }
     }
     return group
   }
@@ -1220,7 +1452,10 @@ export class RtsThreeEngine {
         this.restart(this.state.mode)
       } else if (detail.type === 'mission') {
         this.selectedMission = detail.missionId
-        this.selectedMap = getStoryMission(detail.missionId).mapId
+        const mission = getStoryMission(detail.missionId)
+        this.selectedMap = mission.mapId
+        this.selectedRace = mission.playerRace
+        this.selectedOpponentRace = mission.opponentRace
         this.restart('story')
       } else if (detail.type === 'ai') {
         this.selectedAi = detail.personality
@@ -1258,6 +1493,12 @@ export class RtsThreeEngine {
   }
 
   private restart(mode: GameMode): void {
+    if (mode === 'story') {
+      const mission = getStoryMission(this.selectedMission)
+      this.selectedMap = mission.mapId
+      this.selectedRace = mission.playerRace
+      this.selectedOpponentRace = mission.opponentRace
+    }
     this.state = createInitialState(mode, this.selectedRace, this.selectedOpponentRace, {
       mapId: this.selectedMap,
       missionId: this.selectedMission,
@@ -1490,13 +1731,14 @@ export class RtsThreeEngine {
     this.clampCameraTarget()
   }
 
-  private animate = (): void => {
+  private animate = (frameTime = performance.now()): void => {
     if (this.destroyed) {
       return
     }
     this.frameId = requestAnimationFrame(this.animate)
-    const dt = Math.min(this.clock.getDelta(), 0.1)
-    const time = performance.now()
+    this.timer.update(frameTime)
+    const dt = Math.min(this.timer.getDelta(), 0.1)
+    const time = frameTime
     if ((this.missionStarted || this.state.mode !== 'story') && !this.paused) {
       this.simulationAccumulator = Math.min(0.25, this.simulationAccumulator + dt)
       while (this.simulationAccumulator >= 0.05) {
@@ -1509,6 +1751,7 @@ export class RtsThreeEngine {
     this.renderResources(time)
     this.renderProjectiles()
     this.renderControlPoints(time)
+    this.updateWater(time)
     this.updateRain(dt)
     this.updateEffects(dt)
     this.lastFogUpdate += dt
@@ -1592,6 +1835,14 @@ export class RtsThreeEngine {
       attribute.setXYZ(index, x, y, attribute.getZ(index))
     }
     attribute.needsUpdate = true
+  }
+
+  private updateWater(time: number): void {
+    this.waterMeshes.forEach((water, index) => {
+      water.position.y = 0.7 + Math.sin(time * 0.0014 + index) * 0.42
+      water.material.opacity = 0.68 + Math.sin(time * 0.0008 + index * 0.7) * 0.05
+      water.material.emissiveIntensity = 0.32 + Math.sin(time * 0.0011 + index) * 0.08
+    })
   }
 
   private updateFog(): void {
@@ -1692,6 +1943,21 @@ export class RtsThreeEngine {
     mesh.position.set(world.x, 4, world.y)
     this.effectRoot.add(mesh)
     this.commandPulses.push({ mesh, age: 0, duration: 0.46 })
+  }
+
+  private pulseImpact(world: Vec2, color: number): void {
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(4, 9, 24), material)
+    mesh.rotation.x = -Math.PI / 2
+    mesh.position.set(world.x, 5, world.y)
+    this.effectRoot.add(mesh)
+    this.commandPulses.push({ mesh, age: 0, duration: 0.24 })
   }
 
   private updateEffects(dt: number): void {
@@ -1862,6 +2128,17 @@ export class RtsThreeEngine {
 function lerpAngle(current: number, target: number, amount: number): number {
   const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current))
   return current + delta * amount
+}
+
+function pointToSegmentDistance(point: Vec2, start: Vec2, end: Vec2): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) {
+    return distance(point, start)
+  }
+  const ratio = THREE.MathUtils.clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1)
+  return distance(point, { x: start.x + dx * ratio, y: start.y + dy * ratio })
 }
 
 declare global {

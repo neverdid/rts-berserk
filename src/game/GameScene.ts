@@ -81,7 +81,7 @@ export class GameScene extends Phaser.Scene {
   private lastSnapshot = 0
   private buildPreview: BuildingType | null = null
   private missionStarted = false
-  private selectedRace: RaceId = 'candlebound'
+  private selectedRace: RaceId = 'compact'
   private placementGhost?: Phaser.GameObjects.Rectangle
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
   private keys?: Record<string, Phaser.Input.Keyboard.Key>
@@ -921,7 +921,7 @@ export class GameScene extends Phaser.Scene {
     const objective =
       this.state.mode === 'story'
         ? STORY_BRIEFING.objectives[Math.min(this.state.storyStep, STORY_BRIEFING.objectives.length - 1)]
-        : 'Destroy the opposing Candle Keep'
+        : 'Destroy the opposing command stronghold'
 
     const snapshot: UiSnapshot = {
       mode: this.state.mode,
@@ -967,10 +967,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private opponentRaceFor(race: RaceId): RaceId {
-    if (race === 'hollow') {
-      return 'sepulcher'
+    if (race === 'compact') {
+      return 'ascendancy'
     }
-    return 'hollow'
+    if (race === 'ascendancy') {
+      return 'concord'
+    }
+    return 'compact'
   }
 
 }

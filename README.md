@@ -1,8 +1,9 @@
-# Ashen Dominion
+# Vowfall
 
-Ashen Dominion is an original dark-medieval-horror real-time strategy game. It combines asymmetric
-factions, economy and production, positional combat, story missions, and competitive matches without
-using copyrighted settings, characters, names, or assets from other games or manga.
+Vowfall is an original dark-medieval-horror real-time strategy game about three civilizations with
+incompatible answers to suffering. It combines asymmetric factions, economy and production,
+positional combat, campaign perspectives, and competitive matches without using copyrighted settings,
+characters, names, or assets from other games or manga.
 
 ## Project status
 
@@ -16,8 +17,14 @@ The repository now has three cooperating layers:
   roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
   Unreal compile these exact same sources, so gameplay rules do not fork between clients.
-- `src/` is the playable TypeScript/Three.js reference slice. It remains available for rapid interaction,
-  balance, story, and visual experiments while Unreal reaches feature parity.
+- `src/` is the playable TypeScript/Three.js reference slice. It currently contains all three Vowfall
+  factions, three campaign prologues, real worker economies, macro-capable AI personalities, faction
+  doctrines, terrain rules, fog, control points, responsive command UI, and a procedural 3D battlefield.
+  It remains the interaction, balance, story, and presentation reference while Unreal reaches parity.
+
+The Unreal directory and C++ module retain the internal name `AshenDominion` for now. Renaming Unreal
+targets, generated files, and module symbols is a separate migration so the playable native foundation
+is not destabilized by a cosmetic path change.
 
 The Unreal skirmish foundation is playable, but it is not being presented as a finished game. Story
 mission objectives, campaign presentation, advanced AI personalities, construction, fog of war, matchmaking, and
@@ -96,8 +103,10 @@ Tests and production build:
 ```bash
 npm test -- --run
 npm run build
+npm run test:visual
 ```
 
 See [docs/cpp-migration.md](docs/cpp-migration.md) for ownership boundaries and the remaining migration
-stages, and [docs/research-brief.md](docs/research-brief.md) for the genre and market findings behind the
-design direction.
+stages, [docs/research-brief.md](docs/research-brief.md) for the genre and market findings, and
+[docs/world-bible.md](docs/world-bible.md) for the original setting, characters, factions, campaign,
+visual direction, and source-safe inspiration ledger.
