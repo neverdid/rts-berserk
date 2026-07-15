@@ -16,6 +16,7 @@ public:
     AAshenCameraPawn();
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    void FocusOn(const FVector& WorldPosition);
 
 private:
     void SetForwardInput(float Value);
@@ -33,5 +34,5 @@ private:
 
     float ForwardInput = 0.0f;
     float RightInput = 0.0f;
-    float DesiredArmLength = 2250.0f;
+    float DesiredArmLength = 2850.0f;
 };

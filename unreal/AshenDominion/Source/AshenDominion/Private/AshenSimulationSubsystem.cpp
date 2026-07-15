@@ -91,7 +91,7 @@ void UAshenSimulationSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 
 void UAshenSimulationSubsystem::Tick(const float DeltaTime)
 {
-    if (Runtime == nullptr)
+    if (Runtime == nullptr || !bGameplayEnabled)
     {
         return;
     }
@@ -101,6 +101,7 @@ void UAshenSimulationSubsystem::Tick(const float DeltaTime)
     while (Accumulator >= FixedStepSeconds && Steps < MaxCatchUpSteps)
     {
         Runtime->Simulation.step();
+        UpdateEnemyCommander();
         Accumulator -= FixedStepSeconds;
         ++Steps;
     }
@@ -116,7 +117,8 @@ TStatId UAshenSimulationSubsystem::GetStatId() const
     RETURN_QUICK_DECLARE_CYCLE_STAT(UAshenSimulationSubsystem, STATGROUP_Tickables);
 }
 
-bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget)
+bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget,
+                                          const bool bQueue)
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
@@ -127,6 +129,7 @@ bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const 
     Command.player = ashen::core::PlayerId::One;
     Command.type = ashen::core::CommandType::Move;
     Command.target = ToCorePosition(WorldTarget);
+    Command.queue = bQueue;
     Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
     for (const int32 Id : EntityIds)
     {
@@ -135,7 +138,8 @@ bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const 
     return Runtime->Simulation.execute_now(std::move(Command)).ok;
 }
 
-bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, const int32 TargetEntityId)
+bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, const int32 TargetEntityId,
+                                            const bool bQueue)
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds) || TargetEntityId <= 0)
     {
@@ -146,6 +150,7 @@ bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, cons
     Command.player = ashen::core::PlayerId::One;
     Command.type = ashen::core::CommandType::Attack;
     Command.target_entity = ashen::core::EntityId{static_cast<uint32>(TargetEntityId)};
+    Command.queue = bQueue;
     Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
     for (const int32 Id : EntityIds)
     {
@@ -154,7 +159,29 @@ bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, cons
     return Runtime->Simulation.execute_now(std::move(Command)).ok;
 }
 
-bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, const int32 ResourceId)
+bool UAshenSimulationSubsystem::IssueAttackMove(const TArray<int32>& EntityIds, const FVector& WorldTarget,
+                                                const bool bQueue)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return false;
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::AttackMove;
+    Command.target = ToCorePosition(WorldTarget);
+    Command.queue = bQueue;
+    Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+}
+
+bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, const int32 ResourceId,
+                                            const bool bQueue)
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds) || ResourceId <= 0)
     {
@@ -165,11 +192,85 @@ bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, cons
     Command.player = ashen::core::PlayerId::One;
     Command.type = ashen::core::CommandType::Gather;
     Command.resource = ashen::core::ResourceId{static_cast<uint32>(ResourceId)};
+    Command.queue = bQueue;
     Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
     for (const int32 Id : EntityIds)
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
+    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+}
+
+bool UAshenSimulationSubsystem::IssuePatrol(const TArray<int32>& EntityIds, const FVector& WorldTarget,
+                                            const bool bQueue)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return false;
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Patrol;
+    Command.target = ToCorePosition(WorldTarget);
+    Command.queue = bQueue;
+    Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+}
+
+bool UAshenSimulationSubsystem::IssueStop(const TArray<int32>& EntityIds)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return false;
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Stop;
+    Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+}
+
+bool UAshenSimulationSubsystem::IssueHold(const TArray<int32>& EntityIds, const bool bQueue)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return false;
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Hold;
+    Command.queue = bQueue;
+    Command.entities.reserve(static_cast<size_t>(EntityIds.Num()));
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+}
+
+bool UAshenSimulationSubsystem::IssueSetRallyPoint(const int32 ProducerId, const FVector& WorldTarget)
+{
+    if (Runtime == nullptr || ProducerId <= 0)
+    {
+        return false;
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::SetRallyPoint;
+    Command.producer = ashen::core::EntityId{static_cast<uint32>(ProducerId)};
+    Command.target = ToCorePosition(WorldTarget);
     return Runtime->Simulation.execute_now(std::move(Command)).ok;
 }
 
@@ -240,16 +341,258 @@ EAshenEntityArchetype UAshenSimulationSubsystem::GetEntityArchetype(const int32 
     return EAshenEntityArchetype::Worker;
 }
 
+FString UAshenSimulationSubsystem::GetEntityOrderLabel(const int32 EntityId) const
+{
+    if (Runtime == nullptr || EntityId <= 0)
+    {
+        return TEXT("IDLE");
+    }
+    const auto* Entity = Runtime->Simulation.find_entity(ashen::core::EntityId{static_cast<uint32>(EntityId)});
+    if (Entity == nullptr)
+    {
+        return TEXT("IDLE");
+    }
+
+    using ashen::core::OrderType;
+    switch (Entity->order.type)
+    {
+    case OrderType::Move:
+        return TEXT("MOVING");
+    case OrderType::Attack:
+        return TEXT("FOCUS FIRE");
+    case OrderType::AttackMove:
+        return TEXT("ADVANCING");
+    case OrderType::Gather:
+        return TEXT("GATHERING");
+    case OrderType::Patrol:
+        return TEXT("PATROLLING");
+    case OrderType::Hold:
+        return TEXT("HOLDING");
+    case OrderType::Idle:
+        return TEXT("IDLE");
+    }
+    return TEXT("IDLE");
+}
+
+TArray<FVector> UAshenSimulationSubsystem::GetEntityRoute(const int32 EntityId) const
+{
+    TArray<FVector> Route;
+    if (Runtime == nullptr || EntityId <= 0)
+    {
+        return Route;
+    }
+    const auto* Entity = Runtime->Simulation.find_entity(ashen::core::EntityId{static_cast<uint32>(EntityId)});
+    if (Entity == nullptr)
+    {
+        return Route;
+    }
+
+    Route.Reserve(static_cast<int32>(Entity->order.route.size() -
+                                     FMath::Min(Entity->order.route_index, Entity->order.route.size())));
+    for (size_t Index = Entity->order.route_index; Index < Entity->order.route.size(); ++Index)
+    {
+        Route.Add(ToWorldPosition(Entity->order.route[Index].x, Entity->order.route[Index].y));
+    }
+    return Route;
+}
+
+void UAshenSimulationSubsystem::SetGameplayEnabled(const bool bEnabled)
+{
+    const bool bWasEnabled = bGameplayEnabled;
+    bGameplayEnabled = bEnabled;
+    Accumulator = 0.0f;
+    if (bEnabled && !bWasEnabled && Runtime != nullptr && Runtime->Simulation.tick() == 0)
+    {
+        PrimeOpeningEconomy();
+    }
+}
+
+void UAshenSimulationSubsystem::RestartMatch()
+{
+    for (const TPair<uint32, TWeakObjectPtr<AAshenEntityActor>>& Pair : EntityActors)
+    {
+        if (Pair.Value.IsValid())
+        {
+            Pair.Value->Destroy();
+        }
+    }
+    for (const TPair<uint32, TWeakObjectPtr<AAshenResourceActor>>& Pair : ResourceActors)
+    {
+        if (Pair.Value.IsValid())
+        {
+            Pair.Value->Destroy();
+        }
+    }
+    EntityActors.Reset();
+    ResourceActors.Reset();
+    StartMatch();
+}
+
+bool UAshenSimulationSubsystem::IsMatchOver() const
+{
+    return Runtime != nullptr && Runtime->Simulation.status() != ashen::core::MatchStatus::Playing;
+}
+
+bool UAshenSimulationSubsystem::DidLocalPlayerWin() const
+{
+    return Runtime != nullptr && Runtime->Simulation.winner().has_value() &&
+           Runtime->Simulation.winner().value() == ashen::core::PlayerId::One;
+}
+
 void UAshenSimulationSubsystem::StartMatch()
 {
     delete Runtime;
     Runtime = new FAshenSimulationRuntime();
     Accumulator = 0.0f;
+    LastEnemyDecisionTick = -1;
+    bGameplayEnabled = false;
     UE_LOG(LogAshenSimulation, Display,
            TEXT("Match started: %d entities, %d resource fields, %d fixed ticks/sec"),
            static_cast<int32>(Runtime->Simulation.entities().size()),
            static_cast<int32>(Runtime->Simulation.resources().size()), ashen::core::kTicksPerSecond);
     SyncWorldActors();
+}
+
+void UAshenSimulationSubsystem::PrimeOpeningEconomy()
+{
+    if (Runtime == nullptr)
+    {
+        return;
+    }
+
+    using namespace ashen::core;
+    std::vector<EntityId> Workers;
+    for (const Entity& EntityState : Runtime->Simulation.entities())
+    {
+        if (EntityState.owner == PlayerId::One && EntityState.type == EntityType::Worker)
+        {
+            Workers.push_back(EntityState.id);
+        }
+    }
+
+    const ResourceNode* ChosenResource = nullptr;
+    for (const ResourceNode& Resource : Runtime->Simulation.resources())
+    {
+        if (ChosenResource == nullptr || Resource.position.x < ChosenResource->position.x)
+        {
+            ChosenResource = &Resource;
+        }
+    }
+    if (Workers.empty() || ChosenResource == nullptr)
+    {
+        return;
+    }
+
+    Command Gather{};
+    Gather.player = PlayerId::One;
+    Gather.type = CommandType::Gather;
+    Gather.entities = std::move(Workers);
+    Gather.resource = ChosenResource->id;
+    static_cast<void>(Runtime->Simulation.execute_now(std::move(Gather)));
+    UE_LOG(LogAshenSimulation, Display, TEXT("Opening workers assigned to cursed iron"));
+}
+
+void UAshenSimulationSubsystem::UpdateEnemyCommander()
+{
+    if (Runtime == nullptr || Runtime->Simulation.status() != ashen::core::MatchStatus::Playing)
+    {
+        return;
+    }
+
+    const int64 Tick = static_cast<int64>(Runtime->Simulation.tick());
+    if (Tick == LastEnemyDecisionTick)
+    {
+        return;
+    }
+    LastEnemyDecisionTick = Tick;
+
+    using namespace ashen::core;
+    std::vector<EntityId> Workers;
+    std::vector<EntityId> Army;
+    const Entity* CommandBuilding = nullptr;
+    const Entity* Barracks = nullptr;
+    const Entity* HumanCommand = nullptr;
+    for (const Entity& EntityState : Runtime->Simulation.entities())
+    {
+        if (EntityState.owner == PlayerId::Two)
+        {
+            if (EntityState.type == EntityType::Worker)
+            {
+                Workers.push_back(EntityState.id);
+            }
+            else if (EntityState.type == EntityType::Vanguard || EntityState.type == EntityType::Skirmisher)
+            {
+                Army.push_back(EntityState.id);
+            }
+            else if (EntityState.type == EntityType::Command)
+            {
+                CommandBuilding = &EntityState;
+            }
+            else if (EntityState.type == EntityType::Barracks)
+            {
+                Barracks = &EntityState;
+            }
+        }
+        else if (EntityState.type == EntityType::Command)
+        {
+            HumanCommand = &EntityState;
+        }
+    }
+
+    if ((Tick == 1 || Tick % 420 == 0) && !Workers.empty())
+    {
+        const ResourceNode* ChosenResource = nullptr;
+        for (const ResourceNode& Resource : Runtime->Simulation.resources())
+        {
+            if (ChosenResource == nullptr || Resource.position.x > ChosenResource->position.x)
+            {
+                ChosenResource = &Resource;
+            }
+        }
+        if (ChosenResource != nullptr)
+        {
+            Command Gather{};
+            Gather.player = PlayerId::Two;
+            Gather.type = CommandType::Gather;
+            Gather.entities = Workers;
+            Gather.resource = ChosenResource->id;
+            static_cast<void>(Runtime->Simulation.execute_now(std::move(Gather)));
+        }
+    }
+
+    if (Tick > 0 && Tick % 160 == 0)
+    {
+        if (CommandBuilding != nullptr && Workers.size() < 5 && CommandBuilding->production_queue.size() < 2)
+        {
+            Command TrainWorker{};
+            TrainWorker.player = PlayerId::Two;
+            TrainWorker.type = CommandType::Train;
+            TrainWorker.producer = CommandBuilding->id;
+            TrainWorker.train_type = EntityType::Worker;
+            static_cast<void>(Runtime->Simulation.execute_now(std::move(TrainWorker)));
+        }
+
+        if (Barracks != nullptr && Barracks->production_queue.size() < 2)
+        {
+            Command TrainArmy{};
+            TrainArmy.player = PlayerId::Two;
+            TrainArmy.type = CommandType::Train;
+            TrainArmy.producer = Barracks->id;
+            TrainArmy.train_type = (Tick / 160) % 3 == 0 ? EntityType::Skirmisher : EntityType::Vanguard;
+            static_cast<void>(Runtime->Simulation.execute_now(std::move(TrainArmy)));
+        }
+    }
+
+    if (Tick >= 2'400 && (Tick - 2'400) % 800 == 0 && Army.size() >= 6 && HumanCommand != nullptr)
+    {
+        Command Assault{};
+        Assault.player = PlayerId::Two;
+        Assault.type = CommandType::Attack;
+        Assault.entities = std::move(Army);
+        Assault.target_entity = HumanCommand->id;
+        static_cast<void>(Runtime->Simulation.execute_now(std::move(Assault)));
+        UE_LOG(LogAshenSimulation, Display, TEXT("The Hollow Choir launches an assault at tick %lld"), Tick);
+    }
 }
 
 void UAshenSimulationSubsystem::SyncWorldActors()

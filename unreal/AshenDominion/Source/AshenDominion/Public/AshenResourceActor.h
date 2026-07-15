@@ -4,6 +4,7 @@
 #include "AshenResourceActor.generated.h"
 
 class UPointLightComponent;
+class USceneComponent;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -21,11 +22,16 @@ public:
 
 private:
     UPROPERTY(VisibleAnywhere, Category = "Ashen")
+    TObjectPtr<USceneComponent> SceneRoot;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen")
     TObjectPtr<UStaticMeshComponent> ResourceMesh;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> CrystalMeshes;
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen")
     TObjectPtr<UPointLightComponent> ResourceLight;
 
     int32 ResourceId = 0;
-    float GroundOffset = 20.0f;
 };

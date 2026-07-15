@@ -20,7 +20,8 @@ Owns deterministic, headless game rules:
 - ordered player commands
 - integer world coordinates
 - faction and unit definitions
-- movement, gathering, production, combat, supply, and victory
+- obstacle-aware movement, formations, local separation, queued orders, gathering, production, combat,
+  supply, and victory
 - state hashing for replay and desync detection
 
 It has no dependency on Unreal types, rendering, audio, operating-system APIs, or wall-clock time. CMake
@@ -31,10 +32,10 @@ and Unreal compile the same files from `unreal/AshenDominion/Source/AshenCore/`.
 Owns presentation and platform behavior:
 
 - RTS camera, screen-edge movement, smooth zoom, and input mapping
-- click, additive, and drag-box selection feedback
+- click, additive, same-type, unit-priority drag-box selection, and control groups
 - contextual command dispatch to authoritative entity IDs
-- terrain dressing, meshes, materials, lighting, fog, HUD, and visual entity synchronization
-- future animation, VFX, audio, menus, mission presentation, and localization
+- terrain dressing, faction meshes, materials, lighting, fog, menu/HUD, and visual entity synchronization
+- future animation, VFX, audio, mission presentation, and localization
 - future lobby, account, matchmaking, and platform services
 
 Actors are visual proxies. They do not decide damage, income, production completion, or victory.
@@ -52,8 +53,8 @@ state hashes and snapshots. Per-unit Actor replication is intentionally avoided.
    contextual commands, HUD, and a procedural battlefield.
 3. **Parity fixtures - next**: export representative TypeScript scenarios and assert equivalent C++
    outcomes.
-4. **Feature parity**: pathfinding, construction, research, faction powers, control points, fog, AI, and
-   story objectives.
+4. **Feature parity**: construction, research, faction powers, control points, fog, advanced
+   AI, and story objectives.
 5. **Competitive networking**: authoritative server, command buffering, reconnect snapshots, replays,
    matchmaking, and desync diagnostics.
 6. **Content pipeline**: project-owned terrain materials, production meshes, maps, missions, animation,
@@ -78,7 +79,9 @@ Implemented in portable C++:
 
 - three asymmetric factions
 - six entity archetypes and faction overrides
-- fixed-step movement
+- deterministic grid routing through authored river crossings, smoothed routes, formation destinations,
+  and local unit separation
+- move, attack-move, focus-fire, patrol, hold, stop, rally, and Shift-queued orders
 - worker harvesting and faction income modifiers
 - production queues, costs, build time, and supply
 - targeted combat and armor bonuses
@@ -89,19 +92,23 @@ Implemented in the Unreal client:
 
 - fixed-step subsystem integration with bounded catch-up
 - entity and resource visual proxy lifecycle
-- contextual movement, attack, gathering, and training
-- player camera, edge scroll, smooth zoom, single/additive/box selection
-- compact resource, supply, selection, and tick HUD
-- lit 3D ground, faction/resource materials, ritual stones, and instanced map boundaries
+- contextual movement, attack, gathering, rally points, and training
+- player camera, edge scroll, smooth zoom, single/additive/unit-priority box selection, same-type selection,
+  and ten control groups with camera focus
+- command-mode feedback, order-state HUD, route overlays, and ground acknowledgements
+- paused deployment menu, responsive resource/selection HUD, outcome presentation, and tactical minimap
+- automatic opening economy and a deterministic local skirmish commander with production and attack waves
+- distinct multi-part human and monster units, castles, barracks, resources, selection rings, and health bars
+- lit battlefield with fortified territories, roads, two bridges, water shader and ripples, ritual island,
+  grass, living/dead trees, rocks, fog, post-processing, and instanced boundary dressing
 - Blueprint-safe command/state API
 - in-engine deterministic automation coverage
 
 Still using the TypeScript prototype as a reference:
 
-- grid pathfinding, collision separation, and formations
 - building placement and construction
-- stances, attack-move, retreat, research, and faction powers
+- retreat, research, and faction powers
 - projectiles, resolve, terror, wards, control points, and Ruin Tide
-- AI personalities, campaign objectives, dialogue, and cinematics
-- fog of war, minimap, full command card, animation, VFX, audio, and production assets
+- advanced AI personalities, campaign objectives, dialogue, and cinematics
+- fog of war, full command card, animation, VFX, audio, and production assets
 - online lobby, authoritative server, reconnect, replays, and ranked PvP

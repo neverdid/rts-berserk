@@ -23,13 +23,28 @@ public:
     virtual TStatId GetStatId() const override;
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget);
+    bool IssueMove(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueAttack(const TArray<int32>& EntityIds, int32 TargetEntityId);
+    bool IssueAttack(const TArray<int32>& EntityIds, int32 TargetEntityId, bool bQueue);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
-    bool IssueGather(const TArray<int32>& EntityIds, int32 ResourceId);
+    bool IssueAttackMove(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueGather(const TArray<int32>& EntityIds, int32 ResourceId, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssuePatrol(const TArray<int32>& EntityIds, const FVector& WorldTarget, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueStop(const TArray<int32>& EntityIds);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueHold(const TArray<int32>& EntityIds, bool bQueue);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueSetRallyPoint(int32 ProducerId, const FVector& WorldTarget);
 
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
     bool IssueTrain(int32 ProducerId, bool bSecondaryUnit);
@@ -46,13 +61,35 @@ public:
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
     EAshenEntityArchetype GetEntityArchetype(int32 EntityId) const;
 
+    FString GetEntityOrderLabel(int32 EntityId) const;
+    TArray<FVector> GetEntityRoute(int32 EntityId) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|State")
+    void SetGameplayEnabled(bool bEnabled);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|State")
+    void RestartMatch();
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    bool IsGameplayEnabled() const noexcept { return bGameplayEnabled; }
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    bool IsMatchOver() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    bool DidLocalPlayerWin() const;
+
 private:
     void StartMatch();
+    void PrimeOpeningEconomy();
+    void UpdateEnemyCommander();
     void SyncWorldActors();
     FVector ToWorldPosition(int32 CoreX, int32 CoreY) const;
 
     FAshenSimulationRuntime* Runtime = nullptr;
     float Accumulator = 0.0f;
+    int64 LastEnemyDecisionTick = -1;
+    bool bGameplayEnabled = false;
     TMap<uint32, TWeakObjectPtr<AAshenEntityActor>> EntityActors;
     TMap<uint32, TWeakObjectPtr<AAshenResourceActor>> ResourceActors;
 };

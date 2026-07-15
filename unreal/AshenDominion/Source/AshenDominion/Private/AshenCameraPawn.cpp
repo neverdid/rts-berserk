@@ -17,14 +17,14 @@ AAshenCameraPawn::AAshenCameraPawn()
     CameraArm->SetupAttachment(SceneRoot);
     CameraArm->SetUsingAbsoluteRotation(true);
     CameraArm->SetRelativeRotation({-58.0f, -42.0f, 0.0f});
-    CameraArm->TargetArmLength = 2'250.0f;
+    CameraArm->TargetArmLength = 2'850.0f;
     CameraArm->bDoCollisionTest = false;
 
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(CameraArm, USpringArmComponent::SocketName);
-    Camera->FieldOfView = 52.0f;
+    Camera->FieldOfView = 50.0f;
 
-    SetActorLocation({820.0f, 1'080.0f, 0.0f});
+    SetActorLocation({980.0f, 1'080.0f, 0.0f});
 }
 
 void AAshenCameraPawn::Tick(const float DeltaSeconds)
@@ -53,12 +53,14 @@ void AAshenCameraPawn::Tick(const float DeltaSeconds)
     const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
     const float MoveForward = FMath::Clamp(ForwardInput + EdgeForward, -1.0f, 1.0f);
     const float MoveRight = FMath::Clamp(RightInput + EdgeRight, -1.0f, 1.0f);
-    const FVector Delta = (Forward * MoveForward + Right * MoveRight) * 900.0f * DeltaSeconds;
+    const float MoveSpeed = FMath::GetMappedRangeValueClamped(
+        FVector2D(750.0f, 3'600.0f), FVector2D(650.0f, 1'450.0f), CameraArm->TargetArmLength);
+    const FVector Delta = (Forward * MoveForward + Right * MoveRight) * MoveSpeed * DeltaSeconds;
     AddActorWorldOffset(Delta, false);
 
     FVector Location = GetActorLocation();
-    Location.X = FMath::Clamp(Location.X, 0.0f, 3'840.0f);
-    Location.Y = FMath::Clamp(Location.Y, 0.0f, 2'160.0f);
+    Location.X = FMath::Clamp(Location.X, 260.0f, 3'580.0f);
+    Location.Y = FMath::Clamp(Location.Y, 190.0f, 1'970.0f);
     Location.Z = 0.0f;
     SetActorLocation(Location);
 
@@ -74,6 +76,15 @@ void AAshenCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     PlayerInputComponent->BindAxis(TEXT("CameraZoom"), this, &AAshenCameraPawn::AddZoomInput);
 }
 
+void AAshenCameraPawn::FocusOn(const FVector& WorldPosition)
+{
+    FVector Location = GetActorLocation();
+    Location.X = FMath::Clamp(WorldPosition.X, 260.0f, 3'580.0f);
+    Location.Y = FMath::Clamp(WorldPosition.Y, 190.0f, 1'970.0f);
+    Location.Z = 0.0f;
+    SetActorLocation(Location);
+}
+
 void AAshenCameraPawn::SetForwardInput(const float Value)
 {
     ForwardInput = Value;
@@ -86,5 +97,5 @@ void AAshenCameraPawn::SetRightInput(const float Value)
 
 void AAshenCameraPawn::AddZoomInput(const float Value)
 {
-    DesiredArmLength = FMath::Clamp(DesiredArmLength - Value * 260.0f, 750.0f, 3'600.0f);
+    DesiredArmLength = FMath::Clamp(DesiredArmLength - Value * 280.0f, 750.0f, 3'900.0f);
 }
