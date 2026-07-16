@@ -45,7 +45,7 @@ FString StanceLabel(const EAshenStance Stance)
 void AAshenHUD::DrawHUD()
 {
     Super::DrawHUD();
-    if (Canvas == nullptr || GetWorld() == nullptr || GEngine == nullptr)
+    if (!bShowHUD || Canvas == nullptr || GetWorld() == nullptr || GEngine == nullptr)
     {
         return;
     }

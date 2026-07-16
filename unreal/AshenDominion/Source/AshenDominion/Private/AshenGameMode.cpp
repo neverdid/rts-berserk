@@ -7,11 +7,12 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "GameFramework/HUD.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "Misc/CommandLine.h"
-#include "Misc/Paths.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
 #include "TimerManager.h"
 #include "UnrealClient.h"
 
@@ -30,38 +31,56 @@ void AAshenGameMode::BeginPlay()
 #if !UE_BUILD_SHIPPING
     const bool bCaptureFrontEnd = FParse::Param(FCommandLine::Get(), TEXT("AshenCaptureFrontEnd"));
     const bool bCaptureBattle = FParse::Param(FCommandLine::Get(), TEXT("AshenCaptureBattle"));
-    if (!bCaptureFrontEnd && !bCaptureBattle)
+    const bool bCaptureWorld = FParse::Param(FCommandLine::Get(), TEXT("AshenCaptureWorld"));
+    if (!bCaptureFrontEnd && !bCaptureBattle && !bCaptureWorld)
     {
         return;
     }
 
-    if (bCaptureBattle)
+    if (bCaptureBattle || bCaptureWorld)
     {
         FTimerHandle StartHandle;
-        GetWorldTimerManager().SetTimer(StartHandle, [this]()
-        {
-            if (AAshenPlayerController* Controller = Cast<AAshenPlayerController>(GetWorld()->GetFirstPlayerController()))
+        GetWorldTimerManager().SetTimer(
+            StartHandle,
+            [this, bCaptureWorld]()
             {
-                Controller->StartSkirmish();
-            }
-        }, 0.35f, false);
+                if (AAshenPlayerController *Controller =
+                        Cast<AAshenPlayerController>(GetWorld()->GetFirstPlayerController()))
+                {
+                    Controller->StartSkirmish();
+                    if (bCaptureWorld)
+                    {
+                        if (AHUD *HUD = Controller->GetHUD())
+                        {
+                            HUD->bShowHUD = false;
+                        }
+                        if (AAshenCameraPawn *Camera = Cast<AAshenCameraPawn>(Controller->GetPawn()))
+                        {
+                            Camera->FrameWorld();
+                        }
+                    }
+                }
+            },
+            0.35f, false);
     }
 
-    const float CaptureDelay = bCaptureBattle ? 8.0f : 2.5f;
+    const float CaptureDelay = bCaptureBattle || bCaptureWorld ? 8.0f : 2.5f;
     FTimerHandle CaptureHandle;
-    GetWorldTimerManager().SetTimer(CaptureHandle, [bCaptureBattle]()
-    {
-        const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Screenshots/Automation"));
-        IFileManager::Get().MakeDirectory(*Directory, true);
-        const FString Filename = FPaths::Combine(Directory,
-                                                  bCaptureBattle ? TEXT("Battle.png") : TEXT("FrontEnd.png"));
-        FScreenshotRequest::RequestScreenshot(Filename, true, false);
-    }, CaptureDelay, false);
+    GetWorldTimerManager().SetTimer(
+        CaptureHandle,
+        [bCaptureBattle, bCaptureWorld]()
+        {
+            const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Screenshots/Automation"));
+            IFileManager::Get().MakeDirectory(*Directory, true);
+            const TCHAR *ScreenshotName =
+                bCaptureWorld ? TEXT("World.png") : (bCaptureBattle ? TEXT("Battle.png") : TEXT("FrontEnd.png"));
+            const FString Filename = FPaths::Combine(Directory, ScreenshotName);
+            FScreenshotRequest::RequestScreenshot(Filename, true, false);
+        },
+        CaptureDelay, false);
 
     FTimerHandle ExitHandle;
-    GetWorldTimerManager().SetTimer(ExitHandle, []()
-    {
-        FPlatformMisc::RequestExit(false);
-    }, CaptureDelay + 1.5f, false);
+    GetWorldTimerManager().SetTimer(
+        ExitHandle, []() { FPlatformMisc::RequestExit(false); }, CaptureDelay + 1.5f, false);
 #endif
 }
