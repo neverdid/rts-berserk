@@ -1,6 +1,7 @@
 #include "ashen/core/Catalog.hpp"
 #include "ashen/core/Simulation.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>

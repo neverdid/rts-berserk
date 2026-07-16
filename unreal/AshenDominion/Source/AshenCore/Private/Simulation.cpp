@@ -1408,7 +1408,7 @@ std::vector<Vec2> Simulation::find_path(Vec2 start, Vec2 goal, const std::int32_
     closed[static_cast<std::size_t>(current)] = true;
     const auto current_x = current % width;
     const auto current_y = current / width;
-    for (const auto [step_x, step_y] : directions) {
+    for (const auto& [step_x, step_y] : directions) {
       const auto next_x = current_x + step_x;
       const auto next_y = current_y + step_y;
       if (next_x < 0 || next_y < 0 || next_x >= width || next_y >= height) {
