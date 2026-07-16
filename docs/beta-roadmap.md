@@ -20,7 +20,7 @@ does not outrun the gameplay, networking, and validation systems that must suppo
 Exit gate: catalog and representative movement, economy, production, combat, supply, and victory
 contracts pass locally and in GitHub Actions.
 
-## 2. Complete the competitive gameplay vertical slice - next
+## 2. Complete the competitive gameplay vertical slice - complete
 
 - Building placement and construction
 - Research, faction powers, resolve, terror, wards, control points, and Dread Tide
@@ -31,7 +31,11 @@ contracts pass locally and in GitHub Actions.
 Exit gate: one complete 1v1 match can be played in Unreal from opening worker split to victory without a
 debug-only action or missing core system.
 
-## 3. Build the production battlefield
+Delivered with deterministic TypeScript/C++ parity fixtures, native and Unreal automation coverage,
+build-order-aware enemy construction and tech, responsive 1280x720 and 800x600 command surfaces, delayed
+render captures, and world-space feedback for construction, capture pressure, fog, resolve, and damage.
+
+## 3. Build the production battlefield - next
 
 - Replace procedural proxy terrain with an authored competitive map using landscape, roads, bridges,
   river water, forests, cliffs, castles, landmarks, and faction-readable bases

@@ -28,7 +28,8 @@ const FLinearColor MonsterBlood(0.52f, 0.015f, 0.022f);
 
 AAshenEntityActor::AAshenEntityActor()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
 
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
     SetRootComponent(SceneRoot);
@@ -94,6 +95,7 @@ void AAshenEntityActor::InitializeEntity(const int32 InEntityId, const uint8 InO
     }
 
     const FLinearColor FactionColor = OwnerIndex == 0 ? HumanBronze : MonsterBlood;
+    FactionBaseColor = FactionColor;
     Ashen::Materials::Apply(SelectionMarker, this,
                             OwnerIndex == 0 ? FLinearColor(0.95f, 0.58f, 0.10f)
                                             : FLinearColor(0.92f, 0.06f, 0.08f),
@@ -126,6 +128,17 @@ void AAshenEntityActor::InitializeEntity(const int32 InEntityId, const uint8 InO
 #if WITH_EDITOR
     SetActorLabel(FString::Printf(TEXT("AshenEntity_%d_%d"), EntityId, static_cast<int32>(Archetype)));
 #endif
+}
+
+void AAshenEntityActor::Tick(const float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    HitFlashStrength = FMath::Max(0.0f, HitFlashStrength - DeltaSeconds / 0.22f);
+    RefreshFactionLight();
+    if (HitFlashStrength <= 0.0f)
+    {
+        SetActorTickEnabled(false);
+    }
 }
 
 void AAshenEntityActor::BuildHumanVisuals(const float Diameter)
@@ -384,7 +397,9 @@ UStaticMeshComponent* AAshenEntityActor::CreatePart(UStaticMesh* Mesh, const FVe
     return Part;
 }
 
-void AAshenEntityActor::ApplySimulationState(const FVector& GroundPosition, const float HealthFraction)
+void AAshenEntityActor::ApplySimulationState(const FVector& GroundPosition, const float HealthFraction,
+                                              const float ResolveFraction, const float ConstructionProgress,
+                                              const bool bUnderConstruction)
 {
     const FVector FlatPosition(GroundPosition.X, GroundPosition.Y, GroundPosition.Z);
     if (!IsBuilding() && bHasGroundPosition)
@@ -399,23 +414,63 @@ void AAshenEntityActor::ApplySimulationState(const FVector& GroundPosition, cons
     SetActorLocation(FlatPosition);
     LastGroundPosition = FlatPosition;
     bHasGroundPosition = true;
-    LastHealthFraction = FMath::Clamp(HealthFraction, 0.0f, 1.0f);
-    HealthLightIntensity = FMath::Lerp(120.0f, 380.0f, LastHealthFraction);
-    FactionLight->SetIntensity(bSelected ? 1'150.0f : HealthLightIntensity);
+    const float NewHealthFraction = FMath::Clamp(HealthFraction, 0.0f, 1.0f);
+    if (bHasSimulationState && NewHealthFraction + 0.001f < LastHealthFraction)
+    {
+        HitFlashStrength = 1.0f;
+        SetActorTickEnabled(true);
+    }
+    bHasSimulationState = true;
+    LastHealthFraction = NewHealthFraction;
+    const float Resolve = FMath::Clamp(ResolveFraction, 0.0f, 1.0f);
+    HealthLightIntensity = FMath::Lerp(90.0f, 420.0f, Resolve) * FMath::Lerp(0.55f, 1.0f, LastHealthFraction);
+    ConstructionLightScale = 1.0f;
+    if (IsBuilding())
+    {
+        const float BuildScale = bUnderConstruction
+                                     ? FMath::Lerp(0.48f, 1.0f, FMath::Clamp(ConstructionProgress, 0.0f, 1.0f))
+                                     : 1.0f;
+        SceneRoot->SetRelativeScale3D(FVector(BuildScale));
+        ConstructionLightScale = bUnderConstruction ? 0.42f + ConstructionProgress * 0.58f : 1.0f;
+    }
+    RefreshFactionLight();
     UpdateHealthDisplay(LastHealthFraction);
+}
+
+void AAshenEntityActor::SetFogVisible(const bool bVisible)
+{
+    if (bFogVisible == bVisible)
+    {
+        return;
+    }
+    bFogVisible = bVisible;
+    SetActorHiddenInGame(!bVisible);
+    EntityMesh->SetCollisionEnabled(bVisible ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+    if (!bVisible && bSelected)
+    {
+        SetSelected(false);
+    }
 }
 
 void AAshenEntityActor::SetSelected(const bool bInSelected)
 {
     bSelected = bInSelected;
-    SelectionMarker->SetVisibility(bInSelected);
+    SelectionMarker->SetVisibility(bInSelected && bFogVisible);
     EntityMesh->SetRenderCustomDepth(bInSelected);
     for (UStaticMeshComponent* Part : DetailMeshes)
     {
         Part->SetRenderCustomDepth(bInSelected);
     }
-    FactionLight->SetIntensity(bInSelected ? 1'150.0f : HealthLightIntensity);
+    RefreshFactionLight();
     UpdateHealthDisplay(LastHealthFraction);
+}
+
+void AAshenEntityActor::RefreshFactionLight()
+{
+    const float BaseIntensity = (bSelected ? 1'150.0f : HealthLightIntensity) * ConstructionLightScale;
+    FactionLight->SetIntensity(BaseIntensity + HitFlashStrength * 1'450.0f);
+    FactionLight->SetLightColor(FLinearColor::LerpUsingHSV(
+        FactionBaseColor, FLinearColor(1.0f, 0.72f, 0.32f), HitFlashStrength));
 }
 
 void AAshenEntityActor::UpdateHealthDisplay(const float HealthFraction)

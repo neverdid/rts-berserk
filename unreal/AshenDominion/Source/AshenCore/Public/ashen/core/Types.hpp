@@ -4,6 +4,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -32,6 +33,13 @@ struct ResourceId {
   auto operator<=>(const ResourceId&) const = default;
 };
 
+struct ControlPointId {
+  std::uint32_t value{};
+
+  [[nodiscard]] constexpr explicit operator bool() const noexcept { return value != 0; }
+  auto operator<=>(const ControlPointId&) const = default;
+};
+
 struct Vec2 {
   std::int32_t x{};
   std::int32_t y{};
@@ -50,7 +58,17 @@ enum class MatchStatus : std::uint8_t { Playing, Won, Lost };
 enum class EntityKind : std::uint8_t { Unit, Building };
 enum class EntityType : std::uint8_t { Worker, Vanguard, Skirmisher, Command, Barracks, Turret };
 enum class ArmorClass : std::uint8_t { Laborer, Armored, Light, Structure };
-enum class OrderType : std::uint8_t { Idle, Move, Attack, AttackMove, Gather, Patrol, Hold };
+enum class ResearchId : std::uint8_t {
+  TierTwo,
+  TemperedOaths,
+  Wardcraft,
+  ChorusOfKnives,
+  PitBroods,
+  VaultPlate,
+  SiegeLiturgy,
+};
+enum class UnitStance : std::uint8_t { Aggressive, Defensive, Hold };
+enum class OrderType : std::uint8_t { Idle, Move, Attack, AttackMove, Gather, Build, Patrol, Hold };
 enum class GatherPhase : std::uint8_t { ToResource, Harvest, Return };
 enum class CommandType : std::uint8_t {
   Move,
@@ -62,6 +80,11 @@ enum class CommandType : std::uint8_t {
   Hold,
   Patrol,
   SetRallyPoint,
+  Build,
+  Research,
+  ActivatePower,
+  Retreat,
+  SetStance,
 };
 enum class CommandError : std::uint8_t {
   None,
@@ -72,7 +95,20 @@ enum class CommandError : std::uint8_t {
   InvalidUnitType,
   InsufficientOre,
   SupplyBlocked,
+  PlacementBlocked,
+  UnderConstruction,
+  QueueFull,
+  PrerequisiteMissing,
+  AlreadyResearched,
+  ResearchBusy,
+  PowerCooldown,
 };
+
+inline constexpr std::size_t kResearchCount = 7;
+
+[[nodiscard]] constexpr std::size_t research_index(const ResearchId research) noexcept {
+  return static_cast<std::size_t>(research);
+}
 
 [[nodiscard]] constexpr std::size_t player_index(const PlayerId player) noexcept {
   return static_cast<std::size_t>(player);
@@ -94,10 +130,13 @@ struct EntityDefinition {
   std::int32_t attack_range{};
   std::int32_t damage{};
   Tick attack_cooldown_ticks{};
+  std::int32_t sight{};
   ArmorClass armor{ArmorClass::Laborer};
   ArmorClass bonus_against{ArmorClass::Laborer};
   bool has_damage_bonus{};
   std::int32_t bonus_damage{};
+  std::int32_t terror{};
+  std::int32_t ward{};
   std::int32_t supply_cost{};
   std::int32_t supply_provided{};
 };
@@ -106,6 +145,24 @@ struct FactionDefinition {
   FactionId id{FactionId::Compact};
   std::string_view name{};
   std::int32_t income_basis_points{10'000};
+  std::int32_t resolve_drift{};
+};
+
+struct ResearchDefinition {
+  ResearchId id{ResearchId::TierTwo};
+  std::optional<FactionId> faction{};
+  std::string_view label{};
+  std::int32_t cost{};
+  Tick research_ticks{};
+  EntityType producer{EntityType::Command};
+  std::optional<ResearchId> prerequisite{};
+};
+
+struct PowerDefinition {
+  FactionId faction{FactionId::Compact};
+  std::string_view label{};
+  std::int32_t cost{};
+  Tick cooldown_ticks{};
 };
 
 struct Order {
@@ -123,6 +180,12 @@ struct Order {
 
 struct ProductionTask {
   EntityType type{EntityType::Worker};
+  Tick remaining_ticks{};
+  Tick total_ticks{};
+};
+
+struct ResearchTask {
+  ResearchId id{ResearchId::TierTwo};
   Tick remaining_ticks{};
   Tick total_ticks{};
 };
@@ -145,6 +208,10 @@ struct Entity {
   ArmorClass bonus_against{ArmorClass::Laborer};
   bool has_damage_bonus{};
   std::int32_t bonus_damage{};
+  std::int32_t sight{};
+  std::int32_t terror{};
+  std::int32_t ward{};
+  std::int32_t resolve{100};
   std::int32_t supply_cost{};
   std::int32_t supply_provided{};
   std::int32_t carrying{};
@@ -152,6 +219,11 @@ struct Entity {
   std::vector<Order> order_queue{};
   Vec2 rally_point{};
   std::vector<ProductionTask> production_queue{};
+  UnitStance stance{UnitStance::Aggressive};
+  Vec2 guard_position{};
+  bool under_construction{};
+  Tick construction_ticks{};
+  Tick construction_total_ticks{};
 
   [[nodiscard]] bool alive() const noexcept { return hit_points > 0; }
 };
@@ -169,6 +241,20 @@ struct PlayerState {
   std::int32_t ore{260};
   std::int32_t supply_used{};
   std::int32_t supply_cap{};
+  std::int32_t resolve{100};
+  Tick power_cooldown_ticks{};
+  std::uint8_t tech_tier{1};
+  std::array<bool, kResearchCount> researched{};
+  std::vector<ResearchTask> research_queue{};
+};
+
+struct ControlPoint {
+  ControlPointId id{};
+  Vec2 position{};
+  std::int32_t radius{};
+  std::optional<PlayerId> owner{};
+  std::int32_t influence{};
+  std::int32_t income_progress{};
 };
 
 struct NavigationObstacle {
@@ -202,6 +288,9 @@ struct Command {
   ResourceId resource{};
   EntityId producer{};
   EntityType train_type{EntityType::Worker};
+  EntityType building_type{EntityType::Barracks};
+  ResearchId research{ResearchId::TierTwo};
+  UnitStance stance{UnitStance::Aggressive};
   bool queue{};
 };
 

@@ -1,5 +1,6 @@
 #include "AshenSimulationSubsystem.h"
 
+#include "AshenControlPointActor.h"
 #include "AshenEntityActor.h"
 #include "AshenResourceActor.h"
 #include "ashen/core/Catalog.hpp"
@@ -8,6 +9,8 @@
 #include "Engine/World.h"
 #include "Stats/Stats.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -54,6 +57,47 @@ EAshenEntityArchetype ToArchetype(const ashen::core::EntityType Type)
     return EAshenEntityArchetype::Worker;
 }
 
+ashen::core::EntityType ToEntityType(const EAshenEntityArchetype Archetype)
+{
+    using ashen::core::EntityType;
+    switch (Archetype)
+    {
+    case EAshenEntityArchetype::Worker:
+        return EntityType::Worker;
+    case EAshenEntityArchetype::Vanguard:
+        return EntityType::Vanguard;
+    case EAshenEntityArchetype::Skirmisher:
+        return EntityType::Skirmisher;
+    case EAshenEntityArchetype::Command:
+        return EntityType::Command;
+    case EAshenEntityArchetype::Barracks:
+        return EntityType::Barracks;
+    case EAshenEntityArchetype::Turret:
+        return EntityType::Turret;
+    }
+    return EntityType::Worker;
+}
+
+ashen::core::ResearchId ToResearch(const EAshenResearch Research)
+{
+    return static_cast<ashen::core::ResearchId>(Research);
+}
+
+ashen::core::UnitStance ToStance(const EAshenStance Stance)
+{
+    return static_cast<ashen::core::UnitStance>(Stance);
+}
+
+EAshenStance ToStance(const ashen::core::UnitStance Stance)
+{
+    return static_cast<EAshenStance>(Stance);
+}
+
+FString CoreText(const std::string_view Text)
+{
+    return FString(UTF8_TO_TCHAR(Text.data()));
+}
+
 ashen::core::Vec2 ToCorePosition(const FVector& WorldPosition)
 {
     return {
@@ -77,6 +121,7 @@ void UAshenSimulationSubsystem::Deinitialize()
     Runtime = nullptr;
     EntityActors.Reset();
     ResourceActors.Reset();
+    ControlPointActors.Reset();
     Super::Deinitialize();
 }
 
@@ -122,7 +167,7 @@ bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const 
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a valid war band before issuing movement."));
     }
 
     ashen::core::Command Command{};
@@ -135,7 +180,8 @@ bool UAshenSimulationSubsystem::IssueMove(const TArray<int32>& EntityIds, const 
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, const int32 TargetEntityId,
@@ -143,7 +189,7 @@ bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, cons
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds) || TargetEntityId <= 0)
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Choose a visible enemy and a valid war band."));
     }
 
     ashen::core::Command Command{};
@@ -156,7 +202,8 @@ bool UAshenSimulationSubsystem::IssueAttack(const TArray<int32>& EntityIds, cons
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueAttackMove(const TArray<int32>& EntityIds, const FVector& WorldTarget,
@@ -164,7 +211,7 @@ bool UAshenSimulationSubsystem::IssueAttackMove(const TArray<int32>& EntityIds, 
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a valid war band before advancing."));
     }
 
     ashen::core::Command Command{};
@@ -177,7 +224,8 @@ bool UAshenSimulationSubsystem::IssueAttackMove(const TArray<int32>& EntityIds, 
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, const int32 ResourceId,
@@ -185,7 +233,7 @@ bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, cons
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds) || ResourceId <= 0)
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select workers and a cursed-iron field."));
     }
 
     ashen::core::Command Command{};
@@ -198,7 +246,8 @@ bool UAshenSimulationSubsystem::IssueGather(const TArray<int32>& EntityIds, cons
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssuePatrol(const TArray<int32>& EntityIds, const FVector& WorldTarget,
@@ -206,7 +255,7 @@ bool UAshenSimulationSubsystem::IssuePatrol(const TArray<int32>& EntityIds, cons
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a valid war band before setting a patrol."));
     }
 
     ashen::core::Command Command{};
@@ -219,14 +268,15 @@ bool UAshenSimulationSubsystem::IssuePatrol(const TArray<int32>& EntityIds, cons
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueStop(const TArray<int32>& EntityIds)
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a valid war band before ordering a stop."));
     }
 
     ashen::core::Command Command{};
@@ -237,14 +287,15 @@ bool UAshenSimulationSubsystem::IssueStop(const TArray<int32>& EntityIds)
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueHold(const TArray<int32>& EntityIds, const bool bQueue)
 {
     if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a valid war band before holding ground."));
     }
 
     ashen::core::Command Command{};
@@ -256,14 +307,15 @@ bool UAshenSimulationSubsystem::IssueHold(const TArray<int32>& EntityIds, const 
     {
         Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
     }
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueSetRallyPoint(const int32 ProducerId, const FVector& WorldTarget)
 {
     if (Runtime == nullptr || ProducerId <= 0)
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a completed production structure."));
     }
 
     ashen::core::Command Command{};
@@ -271,21 +323,22 @@ bool UAshenSimulationSubsystem::IssueSetRallyPoint(const int32 ProducerId, const
     Command.type = ashen::core::CommandType::SetRallyPoint;
     Command.producer = ashen::core::EntityId{static_cast<uint32>(ProducerId)};
     Command.target = ToCorePosition(WorldTarget);
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? TEXT("Rally point set.") : CoreText(Result.reason));
 }
 
 bool UAshenSimulationSubsystem::IssueTrain(const int32 ProducerId, const bool bSecondaryUnit)
 {
     if (Runtime == nullptr || ProducerId <= 0)
     {
-        return false;
+        return StoreCommandResult(false, TEXT("Select a completed production structure."));
     }
 
     const auto* Producer = Runtime->Simulation.find_entity(
         ashen::core::EntityId{static_cast<uint32>(ProducerId)});
     if (Producer == nullptr || Producer->owner != ashen::core::PlayerId::One)
     {
-        return false;
+        return StoreCommandResult(false, TEXT("That structure does not answer to the Compact."));
     }
 
     ashen::core::EntityType UnitType = ashen::core::EntityType::Worker;
@@ -299,7 +352,103 @@ bool UAshenSimulationSubsystem::IssueTrain(const int32 ProducerId, const bool bS
     Command.type = ashen::core::CommandType::Train;
     Command.producer = ashen::core::EntityId{static_cast<uint32>(ProducerId)};
     Command.train_type = UnitType;
-    return Runtime->Simulation.execute_now(std::move(Command)).ok;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? FString() : CoreText(Result.reason));
+}
+
+bool UAshenSimulationSubsystem::IssueBuild(const int32 WorkerId, const EAshenEntityArchetype Building,
+                                           const FVector& WorldTarget)
+{
+    if (Runtime == nullptr || WorkerId <= 0 ||
+        (Building != EAshenEntityArchetype::Barracks && Building != EAshenEntityArchetype::Turret))
+    {
+        return StoreCommandResult(false, TEXT("Select one worker and a valid field structure."));
+    }
+
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Build;
+    Command.entities = {ashen::core::EntityId{static_cast<uint32>(WorkerId)}};
+    Command.target = ToCorePosition(WorldTarget);
+    Command.building_type = ToEntityType(Building);
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? TEXT("Construction order accepted.") : CoreText(Result.reason));
+}
+
+bool UAshenSimulationSubsystem::CanPlaceBuilding(const EAshenEntityArchetype Building,
+                                                 const FVector& WorldTarget) const
+{
+    if (Runtime == nullptr ||
+        (Building != EAshenEntityArchetype::Barracks && Building != EAshenEntityArchetype::Turret))
+    {
+        return false;
+    }
+    return Runtime->Simulation.can_place_building(ToCorePosition(WorldTarget), ToEntityType(Building));
+}
+
+bool UAshenSimulationSubsystem::IssueResearch(const int32 ProducerId, const EAshenResearch Research)
+{
+    if (Runtime == nullptr || ProducerId <= 0)
+    {
+        return StoreCommandResult(false, TEXT("Select the structure responsible for that doctrine."));
+    }
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Research;
+    Command.producer = ashen::core::EntityId{static_cast<uint32>(ProducerId)};
+    Command.research = ToResearch(Research);
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? TEXT("Doctrine entered the archive queue.")
+                                                   : CoreText(Result.reason));
+}
+
+bool UAshenSimulationSubsystem::IssueActivatePower()
+{
+    if (Runtime == nullptr)
+    {
+        return StoreCommandResult(false, TEXT("The command network is unavailable."));
+    }
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::ActivatePower;
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? GetFactionPowerLabel() : CoreText(Result.reason));
+}
+
+bool UAshenSimulationSubsystem::IssueRetreat(const TArray<int32>& EntityIds)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return StoreCommandResult(false, TEXT("Select a war band before ordering retreat."));
+    }
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::Retreat;
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? TEXT("Retreat route set to the March Keep.")
+                                                   : CoreText(Result.reason));
+}
+
+bool UAshenSimulationSubsystem::IssueSetStance(const TArray<int32>& EntityIds, const EAshenStance Stance)
+{
+    if (Runtime == nullptr || EntityIds.IsEmpty() || ContainsInvalidId(EntityIds))
+    {
+        return StoreCommandResult(false, TEXT("Select units before changing their stance."));
+    }
+    ashen::core::Command Command{};
+    Command.player = ashen::core::PlayerId::One;
+    Command.type = ashen::core::CommandType::SetStance;
+    Command.stance = ToStance(Stance);
+    for (const int32 Id : EntityIds)
+    {
+        Command.entities.push_back(ashen::core::EntityId{static_cast<uint32>(Id)});
+    }
+    const auto Result = Runtime->Simulation.execute_now(std::move(Command));
+    return StoreCommandResult(Result.ok, Result.ok ? TEXT("War-band stance updated.") : CoreText(Result.reason));
 }
 
 FAshenPlayerView UAshenSimulationSubsystem::GetPlayerView(const int32 PlayerIndex) const
@@ -315,7 +464,147 @@ FAshenPlayerView UAshenSimulationSubsystem::GetPlayerView(const int32 PlayerInde
     View.Ore = State.ore;
     View.SupplyUsed = State.supply_used;
     View.SupplyCap = State.supply_cap;
+    View.Resolve = State.resolve;
+    View.TechTier = State.tech_tier;
+    View.PowerCooldownSeconds = static_cast<float>(State.power_cooldown_ticks) / ashen::core::kTicksPerSecond;
+    for (const auto& Point : Runtime->Simulation.control_points())
+    {
+        View.ControlledRelics += Point.owner == Player ? 1 : 0;
+    }
+    if (!State.research_queue.empty())
+    {
+        const auto& Task = State.research_queue.front();
+        View.ActiveResearch = CoreText(ashen::core::to_string(Task.id));
+        View.ResearchProgress = Task.total_ticks > 0
+                                    ? 1.0f - static_cast<float>(Task.remaining_ticks) / Task.total_ticks
+                                    : 1.0f;
+    }
     return View;
+}
+
+FAshenEntityView UAshenSimulationSubsystem::GetEntityView(const int32 EntityId) const
+{
+    FAshenEntityView View{};
+    if (Runtime == nullptr || EntityId <= 0)
+    {
+        return View;
+    }
+    const auto* Entity = Runtime->Simulation.find_entity(ashen::core::EntityId{static_cast<uint32>(EntityId)});
+    if (Entity == nullptr)
+    {
+        return View;
+    }
+    View.EntityId = EntityId;
+    View.Archetype = ToArchetype(Entity->type);
+    View.Label = CoreText(ashen::core::entity_definition(Runtime->Simulation.player(Entity->owner).faction,
+                                                         Entity->type).label);
+    View.HitPoints = Entity->hit_points;
+    View.MaxHitPoints = Entity->max_hit_points;
+    View.Resolve = Entity->resolve;
+    View.bUnderConstruction = Entity->under_construction;
+    View.ConstructionProgress = Entity->under_construction && Entity->construction_total_ticks > 0
+                                    ? static_cast<float>(Entity->construction_ticks) / Entity->construction_total_ticks
+                                    : 1.0f;
+    View.QueueCount = static_cast<int32>(Entity->production_queue.size());
+    if (!Entity->production_queue.empty())
+    {
+        const auto& Task = Entity->production_queue.front();
+        View.QueueProgress = Task.total_ticks > 0
+                                 ? 1.0f - static_cast<float>(Task.remaining_ticks) / Task.total_ticks
+                                 : 1.0f;
+    }
+    View.Stance = ToStance(Entity->stance);
+    return View;
+}
+
+TArray<FAshenControlPointView> UAshenSimulationSubsystem::GetControlPointViews() const
+{
+    TArray<FAshenControlPointView> Views;
+    if (Runtime == nullptr)
+    {
+        return Views;
+    }
+    Views.Reserve(static_cast<int32>(Runtime->Simulation.control_points().size()));
+    for (const auto& Point : Runtime->Simulation.control_points())
+    {
+        FAshenControlPointView& View = Views.AddDefaulted_GetRef();
+        View.ControlPointId = static_cast<int32>(Point.id.value);
+        View.WorldPosition = ToWorldPosition(Point.position.x, Point.position.y);
+        View.OwnerIndex = Point.owner.has_value() ? static_cast<int32>(*Point.owner) : -1;
+        View.Influence = static_cast<float>(Point.influence) / 10'000.0f;
+    }
+    return Views;
+}
+
+TArray<FAshenResearchView> UAshenSimulationSubsystem::GetResearchViews(const int32 ProducerId) const
+{
+    TArray<FAshenResearchView> Views;
+    if (Runtime == nullptr)
+    {
+        return Views;
+    }
+    using namespace ashen::core;
+    const auto& Player = Runtime->Simulation.player(PlayerId::One);
+    const Entity* Producer = ProducerId > 0
+                                 ? Runtime->Simulation.find_entity(EntityId{static_cast<uint32>(ProducerId)})
+                                 : nullptr;
+    for (std::size_t Index = 0; Index < kResearchCount; ++Index)
+    {
+        const auto Research = static_cast<ResearchId>(Index);
+        const auto Definition = research_definition(Research);
+        if (Definition.faction.has_value() && *Definition.faction != Player.faction)
+        {
+            continue;
+        }
+        FAshenResearchView& View = Views.AddDefaulted_GetRef();
+        View.Research = static_cast<EAshenResearch>(Research);
+        View.Label = CoreText(Definition.label);
+        View.Cost = Definition.cost;
+        View.bCompleted = Player.researched[Index];
+        const auto Task = std::ranges::find_if(Player.research_queue, [Research](const ResearchTask& Candidate)
+        {
+            return Candidate.id == Research;
+        });
+        View.bInProgress = Task != Player.research_queue.end();
+        if (View.bInProgress)
+        {
+            View.Progress = Task->total_ticks > 0
+                                ? 1.0f - static_cast<float>(Task->remaining_ticks) / Task->total_ticks
+                                : 1.0f;
+        }
+        const bool bPrerequisite = !Definition.prerequisite.has_value() ||
+                                   Player.researched[research_index(*Definition.prerequisite)];
+        View.bAvailable = !View.bCompleted && !View.bInProgress && Player.research_queue.empty() &&
+                          Player.ore >= Definition.cost && Producer != nullptr && !Producer->under_construction &&
+                          Producer->owner == PlayerId::One && Producer->type == Definition.producer && bPrerequisite;
+    }
+    return Views;
+}
+
+int32 UAshenSimulationSubsystem::GetRuinTide() const
+{
+    return Runtime == nullptr ? 0 : Runtime->Simulation.ruin_tide();
+}
+
+FString UAshenSimulationSubsystem::GetFactionPowerLabel() const
+{
+    if (Runtime == nullptr)
+    {
+        return TEXT("FACTION DOCTRINE");
+    }
+    return CoreText(ashen::core::power_definition(Runtime->Simulation.player(ashen::core::PlayerId::One).faction).label);
+}
+
+FString UAshenSimulationSubsystem::GetObjectiveText() const
+{
+    if (Runtime == nullptr)
+    {
+        return {};
+    }
+    const FAshenPlayerView Player = GetPlayerView(0);
+    return FString::Printf(TEXT("Destroy the rival command keep  //  Relics held %d / %d"),
+                           Player.ControlledRelics,
+                           static_cast<int32>(Runtime->Simulation.control_points().size()));
 }
 
 int64 UAshenSimulationSubsystem::GetSimulationTick() const
@@ -364,6 +653,8 @@ FString UAshenSimulationSubsystem::GetEntityOrderLabel(const int32 EntityId) con
         return TEXT("ADVANCING");
     case OrderType::Gather:
         return TEXT("GATHERING");
+    case OrderType::Build:
+        return TEXT("CONSTRUCTING");
     case OrderType::Patrol:
         return TEXT("PATROLLING");
     case OrderType::Hold:
@@ -423,8 +714,16 @@ void UAshenSimulationSubsystem::RestartMatch()
             Pair.Value->Destroy();
         }
     }
+    for (const TPair<uint32, TWeakObjectPtr<AAshenControlPointActor>>& Pair : ControlPointActors)
+    {
+        if (Pair.Value.IsValid())
+        {
+            Pair.Value->Destroy();
+        }
+    }
     EntityActors.Reset();
     ResourceActors.Reset();
+    ControlPointActors.Reset();
     StartMatch();
 }
 
@@ -439,12 +738,19 @@ bool UAshenSimulationSubsystem::DidLocalPlayerWin() const
            Runtime->Simulation.winner().value() == ashen::core::PlayerId::One;
 }
 
+bool UAshenSimulationSubsystem::StoreCommandResult(const bool bOk, const FString& FailureMessage)
+{
+    LastCommandMessage = FailureMessage;
+    return bOk;
+}
+
 void UAshenSimulationSubsystem::StartMatch()
 {
     delete Runtime;
     Runtime = new FAshenSimulationRuntime();
     Accumulator = 0.0f;
     LastEnemyDecisionTick = -1;
+    LastCommandMessage.Reset();
     bGameplayEnabled = false;
     UE_LOG(LogAshenSimulation, Display,
            TEXT("Match started: %d entities, %d resource fields, %d fixed ticks/sec"),
@@ -511,6 +817,7 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
     std::vector<EntityId> Army;
     const Entity* CommandBuilding = nullptr;
     const Entity* Barracks = nullptr;
+    const Entity* Turret = nullptr;
     const Entity* HumanCommand = nullptr;
     for (const Entity& EntityState : Runtime->Simulation.entities())
     {
@@ -531,6 +838,10 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
             else if (EntityState.type == EntityType::Barracks)
             {
                 Barracks = &EntityState;
+            }
+            else if (EntityState.type == EntityType::Turret)
+            {
+                Turret = &EntityState;
             }
         }
         else if (EntityState.type == EntityType::Command)
@@ -560,8 +871,83 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
         }
     }
 
+    if (Barracks == nullptr && CommandBuilding != nullptr && !Workers.empty() && (Tick == 1 || Tick % 180 == 0))
+    {
+        constexpr int32 Offset = 1'000;
+        const std::array<Vec2, 4> Sites = {
+            Vec2{CommandBuilding->position.x - 190 * Offset, CommandBuilding->position.y - 135 * Offset},
+            Vec2{CommandBuilding->position.x - 190 * Offset, CommandBuilding->position.y + 135 * Offset},
+            Vec2{CommandBuilding->position.x - 260 * Offset, CommandBuilding->position.y - 95 * Offset},
+            Vec2{CommandBuilding->position.x - 260 * Offset, CommandBuilding->position.y + 95 * Offset},
+        };
+        for (const Vec2 Site : Sites)
+        {
+            Command Build{};
+            Build.player = PlayerId::Two;
+            Build.type = CommandType::Build;
+            Build.entities = {Workers.front()};
+            Build.target = Site;
+            Build.building_type = EntityType::Barracks;
+            if (Runtime->Simulation.execute_now(std::move(Build)).ok)
+            {
+                UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy founds a Chrysalis Court"));
+                return;
+            }
+        }
+    }
+
+    if (Turret == nullptr && CommandBuilding != nullptr && Barracks != nullptr && !Barracks->under_construction &&
+        !Workers.empty() &&
+        Tick >= 900 && Tick % 240 == 0)
+    {
+        const Vec2 Site{CommandBuilding->position.x - 330 * ashen::core::kWorldScale,
+                        CommandBuilding->position.y + 175 * ashen::core::kWorldScale};
+        Command Build{};
+        Build.player = PlayerId::Two;
+        Build.type = CommandType::Build;
+        Build.entities = {Workers.back()};
+        Build.target = Site;
+        Build.building_type = EntityType::Turret;
+        if (Runtime->Simulation.execute_now(std::move(Build)).ok)
+        {
+            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy raises a Witness Needle"));
+            return;
+        }
+    }
+
     if (Tick > 0 && Tick % 160 == 0)
     {
+        const PlayerState& Enemy = Runtime->Simulation.player(PlayerId::Two);
+        if (!Runtime->Simulation.has_research(PlayerId::Two, ResearchId::TierTwo) &&
+            Enemy.research_queue.empty() && CommandBuilding != nullptr)
+        {
+            Command Research{};
+            Research.player = PlayerId::Two;
+            Research.type = CommandType::Research;
+            Research.producer = CommandBuilding->id;
+            Research.research = ResearchId::TierTwo;
+            if (Runtime->Simulation.execute_now(std::move(Research)).ok)
+            {
+                UE_LOG(LogAshenSimulation, Display, TEXT("Enemy doctrine advances to the Black-Iron Age"));
+                return;
+            }
+        }
+        if (Runtime->Simulation.has_research(PlayerId::Two, ResearchId::TierTwo) &&
+            !Runtime->Simulation.has_research(PlayerId::Two, ResearchId::ChorusOfKnives) &&
+            Enemy.research_queue.empty() && Barracks != nullptr)
+        {
+            Command Research{};
+            Research.player = PlayerId::Two;
+            Research.type = CommandType::Research;
+            Research.producer = Barracks->id;
+            Research.research = ResearchId::ChorusOfKnives;
+            if (Runtime->Simulation.execute_now(std::move(Research)).ok)
+            {
+                UE_LOG(LogAshenSimulation, Display, TEXT("Enemy doctrine begins Perfected Purpose"));
+                return;
+            }
+        }
+
         if (CommandBuilding != nullptr && Workers.size() < 5 && CommandBuilding->production_queue.size() < 2)
         {
             Command TrainWorker{};
@@ -580,6 +966,41 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
             TrainArmy.producer = Barracks->id;
             TrainArmy.train_type = (Tick / 160) % 3 == 0 ? EntityType::Skirmisher : EntityType::Vanguard;
             static_cast<void>(Runtime->Simulation.execute_now(std::move(TrainArmy)));
+        }
+    }
+
+    if (Tick >= 900 && Tick % 480 == 0 && Army.size() >= 4)
+    {
+        const ControlPoint* TargetPoint = nullptr;
+        for (const ControlPoint& Point : Runtime->Simulation.control_points())
+        {
+            if (Point.owner != PlayerId::Two)
+            {
+                TargetPoint = &Point;
+                break;
+            }
+        }
+        if (TargetPoint != nullptr)
+        {
+            Command Capture{};
+            Capture.player = PlayerId::Two;
+            Capture.type = CommandType::AttackMove;
+            Capture.entities = Army;
+            Capture.target = TargetPoint->position;
+            static_cast<void>(Runtime->Simulation.execute_now(std::move(Capture)));
+        }
+    }
+
+    const PlayerState& Enemy = Runtime->Simulation.player(PlayerId::Two);
+    if (Tick >= 1'200 && Tick % 240 == 0 && Army.size() >= 3 && Enemy.power_cooldown_ticks == 0)
+    {
+        Command Power{};
+        Power.player = PlayerId::Two;
+        Power.type = CommandType::ActivatePower;
+        if (Runtime->Simulation.execute_now(std::move(Power)).ok)
+        {
+            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy manifests Absolution"));
+            return;
         }
     }
 
@@ -624,7 +1045,15 @@ void UAshenSimulationSubsystem::SyncWorldActors()
         const float HealthFraction = Entity.max_hit_points > 0
                                          ? static_cast<float>(Entity.hit_points) / Entity.max_hit_points
                                          : 0.0f;
-        Actor->ApplySimulationState(ToWorldPosition(Entity.position.x, Entity.position.y), HealthFraction);
+        const float ResolveFraction = static_cast<float>(Entity.resolve) / 100.0f;
+        const float ConstructionProgress = Entity.under_construction && Entity.construction_total_ticks > 0
+                                               ? static_cast<float>(Entity.construction_ticks) /
+                                                     Entity.construction_total_ticks
+                                               : 1.0f;
+        Actor->ApplySimulationState(ToWorldPosition(Entity.position.x, Entity.position.y), HealthFraction,
+                                    ResolveFraction, ConstructionProgress, Entity.under_construction);
+        Actor->SetFogVisible(Entity.owner == ashen::core::PlayerId::One ||
+                             Runtime->Simulation.is_entity_visible_to(Entity, ashen::core::PlayerId::One));
     }
 
     TArray<uint32> EntityKeys;
@@ -656,6 +1085,42 @@ void UAshenSimulationSubsystem::SyncWorldActors()
                                       static_cast<float>(Resource.radius) / ashen::core::kWorldScale * RenderScale);
         }
         Actor->ApplySimulationState(ToWorldPosition(Resource.position.x, Resource.position.y));
+    }
+
+    TSet<uint32> LiveControlPoints;
+    for (const auto& Point : Runtime->Simulation.control_points())
+    {
+        LiveControlPoints.Add(Point.id.value);
+        AAshenControlPointActor* Actor = ControlPointActors.FindRef(Point.id.value).Get();
+        if (Actor == nullptr)
+        {
+            Actor = World->SpawnActor<AAshenControlPointActor>();
+            if (Actor == nullptr)
+            {
+                continue;
+            }
+            ControlPointActors.Add(Point.id.value, Actor);
+            Actor->InitializeControlPoint(static_cast<int32>(Point.id.value),
+                                          static_cast<float>(Point.radius) / ashen::core::kWorldScale * RenderScale);
+        }
+        Actor->ApplySimulationState(ToWorldPosition(Point.position.x, Point.position.y),
+                                    Point.owner.has_value() ? static_cast<int32>(*Point.owner) : -1,
+                                    static_cast<float>(Point.influence) / 10'000.0f,
+                                    Runtime->Simulation.ruin_tide());
+    }
+
+    TArray<uint32> ControlKeys;
+    ControlPointActors.GetKeys(ControlKeys);
+    for (const uint32 Id : ControlKeys)
+    {
+        if (!LiveControlPoints.Contains(Id))
+        {
+            if (AAshenControlPointActor* Actor = ControlPointActors.FindRef(Id).Get())
+            {
+                Actor->Destroy();
+            }
+            ControlPointActors.Remove(Id);
+        }
     }
 }
 

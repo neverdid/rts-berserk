@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "ashen/core/Catalog.hpp"
 #include "ashen/core/Simulation.hpp"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -15,8 +16,10 @@ bool FAshenCoreBootsInUnrealTest::RunTest(const FString& Parameters)
     ashen::core::Simulation First{};
     ashen::core::Simulation Second{};
 
-    TestEqual(TEXT("Default match seeds twelve entities"), static_cast<int32>(First.entities().size()), 12);
+    TestEqual(TEXT("Default match seeds ten entities"), static_cast<int32>(First.entities().size()), 10);
     TestEqual(TEXT("Default match seeds three resource fields"), static_cast<int32>(First.resources().size()), 3);
+    TestEqual(TEXT("Default match seeds two contestable relics"),
+              static_cast<int32>(First.control_points().size()), 2);
 
     First.run(240);
     Second.run(240);
@@ -67,6 +70,83 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Unit completes both orders"),
              First.find_entity(FirstUnit) != nullptr && First.find_entity(FirstUnit)->position == world(1'160, 220));
     TestTrue(TEXT("Navigation and queued orders remain deterministic"), First.state_hash() == Second.state_hash());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FAshenCoreCompetitiveSliceInUnrealTest,
+    "Ashen.Core.CompetitiveVerticalSlice",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreCompetitiveSliceInUnrealTest::RunTest(const FString& Parameters)
+{
+    static_cast<void>(Parameters);
+    using namespace ashen::core;
+
+    SimulationConfig Config{};
+    Config.seed_starting_forces = false;
+    Simulation Match{Config};
+    const EntityId Keep = Match.spawn_entity(PlayerId::One, EntityType::Command, world(200, 400));
+    const EntityId Worker = Match.spawn_entity(PlayerId::One, EntityType::Worker, world(350, 400));
+    const ResourceId Iron = Match.add_resource(world(350, 270), 1'200);
+
+    Command Build{};
+    Build.player = PlayerId::One;
+    Build.type = CommandType::Build;
+    Build.entities = {Worker};
+    Build.target = world(475, 400);
+    Build.building_type = EntityType::Barracks;
+    TestTrue(TEXT("Worker accepts a valid barracks site"), Match.execute_now(Build).ok);
+    Match.run(380);
+
+    const Entity* Barracks = nullptr;
+    for (const Entity& Candidate : Match.entities())
+    {
+        if (Candidate.owner == PlayerId::One && Candidate.type == EntityType::Barracks)
+        {
+            Barracks = &Candidate;
+            break;
+        }
+    }
+    TestNotNull(TEXT("Construction creates a barracks"), Barracks);
+    TestTrue(TEXT("Worker completes the barracks"), Barracks != nullptr && !Barracks->under_construction);
+
+    Command Gather{};
+    Gather.player = PlayerId::One;
+    Gather.type = CommandType::Gather;
+    Gather.entities = {Worker};
+    Gather.resource = Iron;
+    TestTrue(TEXT("Builder returns to the opening economy"), Match.execute_now(Gather).ok);
+    Match.run(1'600);
+
+    Command Research{};
+    Research.player = PlayerId::One;
+    Research.type = CommandType::Research;
+    Research.producer = Keep;
+    Research.research = ResearchId::TierTwo;
+    TestTrue(TEXT("Command keep begins the Black-Iron Age"), Match.execute_now(Research).ok);
+    Match.run(research_definition(ResearchId::TierTwo).research_ticks);
+    TestTrue(TEXT("Tier-two doctrine completes"), Match.has_research(PlayerId::One, ResearchId::TierTwo));
+
+    const ControlPointId Relic = Match.add_control_point(world(700, 400));
+    static_cast<void>(Relic);
+    static_cast<void>(Match.spawn_entity(PlayerId::One, EntityType::Vanguard, world(700, 400)));
+    Match.run(160);
+    TestTrue(TEXT("A lone war band captures an uncontested relic"),
+             !Match.control_points().empty() && Match.control_points().back().owner == PlayerId::One);
+
+    Command Power{};
+    Power.player = PlayerId::One;
+    Power.type = CommandType::ActivatePower;
+    TestTrue(TEXT("Faction power activates after sufficient economy"), Match.execute_now(Power).ok);
+    TestTrue(TEXT("Faction power begins its cooldown"), Match.player(PlayerId::One).power_cooldown_ticks > 0);
+
+    const EntityId HiddenEnemy = Match.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(1'650, 930));
+    TestFalse(TEXT("A distant enemy is concealed by fog"),
+              Match.is_entity_visible_to(*Match.find_entity(HiddenEnemy), PlayerId::One));
+    static_cast<void>(Match.spawn_entity(PlayerId::One, EntityType::Worker, world(1'520, 930)));
+    TestTrue(TEXT("A scout reveals the distant enemy"),
+             Match.is_entity_visible_to(*Match.find_entity(HiddenEnemy), PlayerId::One));
     return true;
 }
 
