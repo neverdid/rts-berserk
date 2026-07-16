@@ -1,5 +1,7 @@
 #include "AshenCameraPawn.h"
 
+#include "AshenWorldLayout.h"
+
 #include "Camera/CameraComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/SceneComponent.h"
@@ -24,7 +26,7 @@ AAshenCameraPawn::AAshenCameraPawn()
     Camera->SetupAttachment(CameraArm, USpringArmComponent::SocketName);
     Camera->FieldOfView = 50.0f;
 
-    SetActorLocation({980.0f, 1'080.0f, 0.0f});
+    SetActorLocation({1'100.0f, Ashen::WorldLayout::CenterY, 0.0f});
 }
 
 void AAshenCameraPawn::Tick(const float DeltaSeconds)
@@ -59,8 +61,10 @@ void AAshenCameraPawn::Tick(const float DeltaSeconds)
     AddActorWorldOffset(Delta, false);
 
     FVector Location = GetActorLocation();
-    Location.X = FMath::Clamp(Location.X, 260.0f, 3'580.0f);
-    Location.Y = FMath::Clamp(Location.Y, 190.0f, 1'970.0f);
+    Location.X = FMath::Clamp(Location.X, Ashen::WorldLayout::CameraMarginX,
+                              Ashen::WorldLayout::Width - Ashen::WorldLayout::CameraMarginX);
+    Location.Y = FMath::Clamp(Location.Y, Ashen::WorldLayout::CameraMarginY,
+                              Ashen::WorldLayout::Height - Ashen::WorldLayout::CameraMarginY);
     Location.Z = 0.0f;
     SetActorLocation(Location);
 
@@ -78,8 +82,10 @@ void AAshenCameraPawn::SetupPlayerInputComponent(UInputComponent *PlayerInputCom
 void AAshenCameraPawn::FocusOn(const FVector &WorldPosition)
 {
     FVector Location = GetActorLocation();
-    Location.X = FMath::Clamp(WorldPosition.X, 260.0f, 3'580.0f);
-    Location.Y = FMath::Clamp(WorldPosition.Y, 190.0f, 1'970.0f);
+    Location.X = FMath::Clamp(WorldPosition.X, Ashen::WorldLayout::CameraMarginX,
+                              Ashen::WorldLayout::Width - Ashen::WorldLayout::CameraMarginX);
+    Location.Y = FMath::Clamp(WorldPosition.Y, Ashen::WorldLayout::CameraMarginY,
+                              Ashen::WorldLayout::Height - Ashen::WorldLayout::CameraMarginY);
     Location.Z = 0.0f;
     SetActorLocation(Location);
 }
@@ -87,10 +93,10 @@ void AAshenCameraPawn::FocusOn(const FVector &WorldPosition)
 void AAshenCameraPawn::FrameWorld()
 {
     SetActorTickEnabled(false);
-    SetActorLocation({1'920.0f, 1'080.0f, 5'000.0f});
+    SetActorLocation({Ashen::WorldLayout::CenterX, Ashen::WorldLayout::CenterY, 6'500.0f});
     CameraArm->SetRelativeRotation({-90.0f, -90.0f, 0.0f});
     Camera->SetProjectionMode(ECameraProjectionMode::Orthographic);
-    Camera->SetOrthoWidth(3'000.0f);
+    Camera->SetOrthoWidth(3'550.0f);
     DesiredArmLength = 0.0f;
     CameraArm->TargetArmLength = DesiredArmLength;
 }
@@ -107,5 +113,5 @@ void AAshenCameraPawn::SetRightInput(const float Value)
 
 void AAshenCameraPawn::AddZoomInput(const float Value)
 {
-    DesiredArmLength = FMath::Clamp(DesiredArmLength - Value * 280.0f, 750.0f, 3'900.0f);
+    DesiredArmLength = FMath::Clamp(DesiredArmLength - Value * 280.0f, 750.0f, 4'700.0f);
 }

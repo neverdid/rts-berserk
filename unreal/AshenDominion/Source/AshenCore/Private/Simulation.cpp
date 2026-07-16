@@ -157,7 +157,7 @@ void Simulation::reset(const SimulationConfig& config) {
   }
 
   const auto middle_y = config.map_size.y / 2;
-  const auto left_x = world(250, 0).x;
+  const auto left_x = world(300, 0).x;
   const auto right_x = config.map_size.x - left_x;
 
   for (const auto& [player_id, base_x, direction] :
@@ -172,11 +172,15 @@ void Simulation::reset(const SimulationConfig& config) {
                                    {base_x + direction * world(125, 0).x, middle_y + world(80, 0).x}));
   }
 
-  static_cast<void>(add_resource({left_x + world(210, 0).x, middle_y - world(150, 0).x}, 1'200));
-  static_cast<void>(add_resource({right_x - world(210, 0).x, middle_y + world(150, 0).x}, 1'200));
+  static_cast<void>(add_resource({left_x + world(260, 0).x, middle_y - world(180, 0).x}, 1'200));
+  static_cast<void>(add_resource({right_x - world(260, 0).x, middle_y + world(180, 0).x}, 1'200));
   static_cast<void>(add_resource({config.map_size.x / 2, middle_y}, 2'400, 32'000));
-  static_cast<void>(add_control_point({config.map_size.x / 2, world(340, 0).x}));
-  static_cast<void>(add_control_point({config.map_size.x / 2, world(740, 0).x}));
+  static_cast<void>(add_resource({world(620, 0).x, world(170, 0).x}, 900));
+  static_cast<void>(add_resource({world(790, 0).x, world(180, 0).x}, 900));
+  static_cast<void>(add_resource({world(1'780, 0).x, world(1'230, 0).x}, 900));
+  static_cast<void>(add_resource({world(1'610, 0).x, world(1'220, 0).x}, 900));
+  static_cast<void>(add_control_point({config.map_size.x / 2, world(380, 0).x}));
+  static_cast<void>(add_control_point({config.map_size.x / 2, world(1'020, 0).x}));
 }
 
 void Simulation::enqueue(Command command) {

@@ -1,6 +1,7 @@
 #include "AshenArena.h"
 
 #include "AshenMaterials.h"
+#include "AshenWorldLayout.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -19,9 +20,9 @@
 
 namespace
 {
-constexpr float MapWidth = 3'840.0f;
-constexpr float MapHeight = 2'160.0f;
-constexpr float RiverCenterX = MapWidth * 0.5f;
+constexpr float MapWidth = Ashen::WorldLayout::Width;
+constexpr float MapHeight = Ashen::WorldLayout::Height;
+constexpr float RiverCenterX = Ashen::WorldLayout::CenterX;
 
 float SmoothRange(const float Minimum, const float Maximum, const float Value)
 {
@@ -30,41 +31,99 @@ float SmoothRange(const float Minimum, const float Maximum, const float Value)
     return Alpha * Alpha * (3.0f - 2.0f * Alpha);
 }
 
+const TArray<FVector2D> &DirectRoute()
+{
+    static const TArray<FVector2D> Route{{600.0f, 1'400.0f}, {1'200.0f, 1'400.0f}, {1'900.0f, 1'400.0f},
+                                         {2'400.0f, 1'400.0f}, {3'100.0f, 1'400.0f}, {4'200.0f, 1'400.0f}};
+    return Route;
+}
+
+const TArray<FVector2D> &NorthRoute()
+{
+    static const TArray<FVector2D> Route{
+        {600.0f, 1'400.0f}, {780.0f, 1'180.0f}, {900.0f, 930.0f}, {900.0f, 650.0f}, {940.0f, 420.0f},
+        {1'180.0f, 340.0f}, {1'680.0f, 340.0f}, {2'050.0f, 600.0f}, {2'240.0f, 760.0f},
+        {2'560.0f, 760.0f}, {2'780.0f, 650.0f}, {3'140.0f, 760.0f}, {3'580.0f, 960.0f},
+        {4'020.0f, 1'180.0f}, {4'200.0f, 1'400.0f},
+    };
+    return Route;
+}
+
+const TArray<FVector2D> &SouthRoute()
+{
+    static const TArray<FVector2D> Route{
+        {600.0f, 1'400.0f}, {780.0f, 1'620.0f}, {1'220.0f, 1'840.0f}, {1'660.0f, 2'040.0f},
+        {2'020.0f, 2'150.0f}, {2'240.0f, 2'040.0f}, {2'560.0f, 2'040.0f}, {2'750.0f, 2'200.0f},
+        {3'120.0f, 2'460.0f}, {3'620.0f, 2'460.0f}, {3'860.0f, 2'380.0f}, {3'900.0f, 2'150.0f},
+        {3'900.0f, 1'870.0f}, {4'020.0f, 1'620.0f}, {4'200.0f, 1'400.0f},
+    };
+    return Route;
+}
+
+float DistanceToSegment(const FVector2D &Point, const FVector2D &Start, const FVector2D &End)
+{
+    const FVector2D Segment = End - Start;
+    const float SegmentLengthSquared = Segment.SizeSquared();
+    if (SegmentLengthSquared <= UE_KINDA_SMALL_NUMBER)
+    {
+        return FVector2D::Distance(Point, Start);
+    }
+    const float Alpha = FMath::Clamp(FVector2D::DotProduct(Point - Start, Segment) / SegmentLengthSquared, 0.0f, 1.0f);
+    return FVector2D::Distance(Point, Start + Segment * Alpha);
+}
+
+float DistanceToRoute(const FVector2D &Point, const TArray<FVector2D> &Route)
+{
+    float Distance = TNumericLimits<float>::Max();
+    for (int32 Index = 1; Index < Route.Num(); ++Index)
+    {
+        Distance = FMath::Min(Distance, DistanceToSegment(Point, Route[Index - 1], Route[Index]));
+    }
+    return Distance;
+}
+
+float EllipseFalloff(const FVector2D &Point, const FVector2D &Center, const FVector2D &Radius)
+{
+    const float NormalizedX = (Point.X - Center.X) / Radius.X;
+    const float NormalizedY = (Point.Y - Center.Y) / Radius.Y;
+    return FMath::Exp(-(NormalizedX * NormalizedX + NormalizedY * NormalizedY) * 1.45f);
+}
+
 float TerrainHeightAt(const float X, const float Y)
 {
     const float ClampedX = FMath::Clamp(X, 0.0f, MapWidth);
     const float ClampedY = FMath::Clamp(Y, 0.0f, MapHeight);
-    const float LaneAlpha = FMath::Clamp((ClampedX - 520.0f) / 2'800.0f, 0.0f, 1.0f);
-    const float LaneArc = FMath::Sin(LaneAlpha * PI) * 400.0f;
-    const float LaneDistance =
-        FMath::Min(FMath::Abs(ClampedY - (1'080.0f - LaneArc)), FMath::Abs(ClampedY - (1'080.0f + LaneArc)));
-    const float HumanBaseDistance = FVector2D::Distance({ClampedX, ClampedY}, {500.0f, 1'080.0f});
-    const float MonsterBaseDistance = FVector2D::Distance({ClampedX, ClampedY}, {3'340.0f, 1'080.0f});
-    const float ClearingMask = FMath::Max(1.0f - SmoothRange(250.0f, 480.0f, LaneDistance),
-                                          FMath::Max(1.0f - SmoothRange(370.0f, 590.0f, HumanBaseDistance),
-                                                     1.0f - SmoothRange(370.0f, 590.0f, MonsterBaseDistance)));
+    const FVector2D Point(ClampedX, ClampedY);
+    const float DirectDistance = DistanceToRoute(Point, DirectRoute());
+    const float FlankDistance = FMath::Min(DistanceToRoute(Point, NorthRoute()), DistanceToRoute(Point, SouthRoute()));
+    const float HumanBaseDistance = FVector2D::Distance(Point, {Ashen::WorldLayout::HumanBaseX, MapHeight * 0.5f});
+    const float MonsterBaseDistance = FVector2D::Distance(Point, {Ashen::WorldLayout::MonsterBaseX, MapHeight * 0.5f});
+    const float ClearingMask =
+        FMath::Max(FMath::Max(1.0f - SmoothRange(165.0f, 330.0f, DirectDistance),
+                             1.0f - SmoothRange(105.0f, 235.0f, FlankDistance)),
+                   FMath::Max(1.0f - SmoothRange(390.0f, 610.0f, HumanBaseDistance),
+                              1.0f - SmoothRange(390.0f, 610.0f, MonsterBaseDistance)));
 
     const float BorderDistance =
         FMath::Min(FMath::Min(ClampedX, MapWidth - ClampedX), FMath::Min(ClampedY, MapHeight - ClampedY));
-    const float EdgeRise = (1.0f - SmoothRange(80.0f, 470.0f, BorderDistance)) * 118.0f;
-    const float BroadUndulation = FMath::Sin(ClampedX * 0.0037f + ClampedY * 0.0021f) * 15.0f +
-                                  FMath::Sin(ClampedX * 0.0081f - ClampedY * 0.0052f) * 7.5f;
-    const float NorthRidge =
-        FMath::Exp(-FVector2D::DistSquared({ClampedX, ClampedY}, {1'080.0f, 170.0f}) / 520'000.0f) * 72.0f;
-    const float SouthRidge =
-        FMath::Exp(-FVector2D::DistSquared({ClampedX, ClampedY}, {2'760.0f, 1'990.0f}) / 470'000.0f) * 88.0f;
+    const float EdgeRise = (1.0f - SmoothRange(95.0f, 520.0f, BorderDistance)) * 155.0f;
+    const float BroadUndulation = FMath::Sin(ClampedX * 0.0031f + ClampedY * 0.0023f) * 17.0f +
+                                  FMath::Sin(ClampedX * 0.0074f - ClampedY * 0.0048f) * 9.0f;
+    const float Mountain = EllipseFalloff(Point, {1'420.0f, 800.0f}, {650.0f, 520.0f}) * 330.0f +
+                           EllipseFalloff(Point, {1'720.0f, 1'050.0f}, {420.0f, 360.0f}) * 150.0f;
+    const float GravewoodRise = EllipseFalloff(Point, {3'380.0f, 2'020.0f}, {700.0f, 540.0f}) * 46.0f;
 
     const float RiverX = RiverCenterX + FMath::Sin((ClampedY / MapHeight) * 8.64f) * 58.0f;
     const float RiverDistance = FMath::Abs(ClampedX - RiverX);
-    const float RiverCut = (1.0f - SmoothRange(95.0f, 250.0f, RiverDistance)) * 34.0f;
-    const float Terrain = EdgeRise + (BroadUndulation + NorthRidge + SouthRidge) * (1.0f - ClearingMask * 0.9f);
+    const float RiverCut = (1.0f - SmoothRange(115.0f, 280.0f, RiverDistance)) * 42.0f;
+    const float Terrain = EdgeRise + (BroadUndulation + Mountain + GravewoodRise) * (1.0f - ClearingMask * 0.94f);
     return Terrain - RiverCut;
 }
 
 float RenderTerrainHeightAt(const float X, const float Y)
 {
     const float OutsideDistance = FMath::Max(FMath::Max(-X, X - MapWidth), FMath::Max(-Y, Y - MapHeight));
-    return TerrainHeightAt(X, Y) + SmoothRange(0.0f, 900.0f, OutsideDistance) * 240.0f;
+    return TerrainHeightAt(X, Y) + SmoothRange(0.0f, 1'050.0f, OutsideDistance) * 310.0f;
 }
 
 Ashen::Materials::FSurfaceStyle SurfaceStyle(const FLinearColor &BaseColor, const FLinearColor &SecondaryColor,
@@ -114,18 +173,15 @@ void AddCylinderBetween(UInstancedStaticMeshComponent *Component, const FVector 
 
 bool IsInGameplayClearing(const FVector2D &Point)
 {
-    const FVector2D HumanBase(500.0f, 1'080.0f);
-    const FVector2D MonsterBase(3'340.0f, 1'080.0f);
-    if (FVector2D::Distance(Point, HumanBase) < 510.0f || FVector2D::Distance(Point, MonsterBase) < 510.0f)
+    const FVector2D HumanBase(Ashen::WorldLayout::HumanBaseX, Ashen::WorldLayout::CenterY);
+    const FVector2D MonsterBase(Ashen::WorldLayout::MonsterBaseX, Ashen::WorldLayout::CenterY);
+    if (FVector2D::Distance(Point, HumanBase) < 530.0f || FVector2D::Distance(Point, MonsterBase) < 530.0f)
     {
         return true;
     }
 
-    const bool bMainLane = Point.X > 700.0f && Point.X < 3'140.0f && FMath::Abs(Point.Y - 1'080.0f) < 215.0f;
-    const bool bNorthBridgeLane = FMath::Abs(Point.Y - 680.0f) < 145.0f && FMath::Abs(Point.X - RiverCenterX) < 560.0f;
-    const bool bSouthBridgeLane =
-        FMath::Abs(Point.Y - 1'480.0f) < 145.0f && FMath::Abs(Point.X - RiverCenterX) < 560.0f;
-    return bMainLane || bNorthBridgeLane || bSouthBridgeLane;
+    return DistanceToRoute(Point, DirectRoute()) < 235.0f || DistanceToRoute(Point, NorthRoute()) < 145.0f ||
+           DistanceToRoute(Point, SouthRoute()) < 145.0f;
 }
 } // namespace
 
@@ -174,6 +230,10 @@ AAshenArena::AAshenArena()
     DeadBranches = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("DeadBranches"));
     GrassTufts = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("GrassTufts"));
     Rocks = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Rocks"));
+    MountainRocks = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MountainRocks"));
+    MineMouths = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MineMouths"));
+    MineTimbers = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MineTimbers"));
+    ForestRoots = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("ForestRoots"));
     HumanWalls = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("HumanWalls"));
     HumanTowers = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("HumanTowers"));
     HumanRoofs = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("HumanRoofs"));
@@ -185,7 +245,6 @@ AAshenArena::AAshenArena()
     MonsterRibs = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MonsterRibs"));
     MonsterSinew = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MonsterSinew"));
     BonePalisade = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BonePalisade"));
-    BoundaryMonoliths = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BoundaryMonoliths"));
     RitualStones = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RitualStones"));
     MythicArches = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("MythicArches"));
     BrazierBowls = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BrazierBowls"));
@@ -205,6 +264,10 @@ AAshenArena::AAshenArena()
     ConfigureInstances(DeadBranches, SceneRoot, Cylinder);
     ConfigureInstances(GrassTufts, SceneRoot, Cone, false);
     ConfigureInstances(Rocks, SceneRoot, Sphere);
+    ConfigureInstances(MountainRocks, SceneRoot, Sphere);
+    ConfigureInstances(MineMouths, SceneRoot, Cube);
+    ConfigureInstances(MineTimbers, SceneRoot, Cylinder);
+    ConfigureInstances(ForestRoots, SceneRoot, Cylinder);
     ConfigureInstances(HumanWalls, SceneRoot, Cube);
     ConfigureInstances(HumanTowers, SceneRoot, Cylinder);
     ConfigureInstances(HumanRoofs, SceneRoot, Cone);
@@ -216,7 +279,6 @@ AAshenArena::AAshenArena()
     ConfigureInstances(MonsterRibs, SceneRoot, Cylinder);
     ConfigureInstances(MonsterSinew, SceneRoot, Sphere);
     ConfigureInstances(BonePalisade, SceneRoot, Cone);
-    ConfigureInstances(BoundaryMonoliths, SceneRoot, Cube);
     ConfigureInstances(RitualStones, SceneRoot, Cylinder);
     ConfigureInstances(MythicArches, SceneRoot, Cylinder);
     ConfigureInstances(BrazierBowls, SceneRoot, Cylinder);
@@ -229,8 +291,8 @@ AAshenArena::AAshenArena()
     BuildLandmarks();
 
     const TArray<FVector> LightLocations{
-        {795.0f, 960.0f, 102.0f},    {795.0f, 1'200.0f, 102.0f},      {3'045.0f, 970.0f, 92.0f},
-        {3'045.0f, 1'190.0f, 92.0f}, {RiverCenterX, 1'080.0f, 84.0f},
+        {895.0f, 1'280.0f, 102.0f}, {895.0f, 1'520.0f, 102.0f}, {3'905.0f, 1'290.0f, 92.0f},
+        {3'905.0f, 1'510.0f, 92.0f}, {RiverCenterX, Ashen::WorldLayout::CenterY, 84.0f},
     };
     for (int32 Index = 0; Index < LightLocations.Num(); ++Index)
     {
@@ -318,9 +380,9 @@ AAshenArena::AAshenArena()
 
 void AAshenArena::BuildTerrain()
 {
-    constexpr int32 Columns = 149;
-    constexpr int32 Rows = 109;
-    constexpr float TerrainMargin = 1'100.0f;
+    constexpr int32 Columns = 177;
+    constexpr int32 Rows = 113;
+    constexpr float TerrainMargin = 1'300.0f;
     constexpr float SampleOffset = 18.0f;
 
     TArray<FVector> Vertices;
@@ -377,8 +439,8 @@ void AAshenArena::BuildTerrain()
 
 void AAshenArena::BuildRiver()
 {
-    constexpr int32 SegmentCount = 12;
-    constexpr float RiverWidth = 265.0f;
+    constexpr int32 SegmentCount = 16;
+    constexpr float RiverWidth = 290.0f;
     UStaticMesh *Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
 
     for (int32 Index = 0; Index < SegmentCount; ++Index)
@@ -435,41 +497,32 @@ void AAshenArena::BuildRiver()
 
     // The central cursed-iron node sits on a raised ritual island.
     RiverBanks->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, 1'080.0f, 9.0f), FVector(2.15f, 1.55f, 0.18f)));
+        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 9.0f),
+                   FVector(2.15f, 1.55f, 0.18f)));
 }
 
 void AAshenArena::BuildRoadsAndBridges()
 {
-    const TArray<FVector2D> NorthRoad{
-        {520.0f, 1'080.0f}, {760.0f, 1'065.0f},   {1'000.0f, 1'020.0f}, {1'220.0f, 900.0f},   {1'420.0f, 760.0f},
-        {1'620.0f, 700.0f}, {1'790.0f, 680.0f},   {2'050.0f, 680.0f},   {2'240.0f, 715.0f},   {2'430.0f, 770.0f},
-        {2'650.0f, 930.0f}, {2'860.0f, 1'050.0f}, {3'100.0f, 1'070.0f}, {3'320.0f, 1'080.0f},
-    };
-    const TArray<FVector2D> SouthRoad{
-        {520.0f, 1'080.0f},   {760.0f, 1'095.0f},   {1'000.0f, 1'140.0f}, {1'220.0f, 1'260.0f}, {1'420.0f, 1'410.0f},
-        {1'620.0f, 1'465.0f}, {1'790.0f, 1'480.0f}, {2'050.0f, 1'480.0f}, {2'240.0f, 1'445.0f}, {2'430.0f, 1'390.0f},
-        {2'650.0f, 1'230.0f}, {2'860.0f, 1'120.0f}, {3'100.0f, 1'090.0f}, {3'320.0f, 1'080.0f},
-    };
-
-    auto AddRoad = [this](const TArray<FVector2D> &Points)
+    auto AddRoad = [this](const TArray<FVector2D> &Points, const float Width)
     {
         for (int32 Index = 1; Index < Points.Num(); ++Index)
         {
             const FVector2D Direction = (Points[Index] - Points[Index - 1]).GetSafeNormal();
             const FVector2D Normal(-Direction.Y, Direction.X);
-            AddFlatSegment(Roadbed, Points[Index - 1], Points[Index], 132.0f, 4.0f, 4.5f);
-            AddFlatSegment(RoadStones, Points[Index - 1], Points[Index], 76.0f, 2.0f, 7.0f);
+            AddFlatSegment(Roadbed, Points[Index - 1], Points[Index], Width, 4.0f, 4.5f);
+            AddFlatSegment(RoadStones, Points[Index - 1], Points[Index], Width * 0.58f, 2.0f, 7.0f);
             for (const float Side : {-1.0f, 1.0f})
             {
-                const FVector2D Offset = Normal * Side * 23.0f;
+                const FVector2D Offset = Normal * Side * Width * 0.18f;
                 AddFlatSegment(RoadRuts, Points[Index - 1] + Offset, Points[Index] + Offset, 5.0f, 1.0f, 8.4f);
             }
         }
     };
-    AddRoad(NorthRoad);
-    AddRoad(SouthRoad);
+    AddRoad(DirectRoute(), 178.0f);
+    AddRoad(NorthRoute(), 116.0f);
+    AddRoad(SouthRoute(), 116.0f);
 
-    for (const float BridgeY : {680.0f, 1'480.0f})
+    for (const float BridgeY : {Ashen::WorldLayout::NorthCrossingY, Ashen::WorldLayout::SouthCrossingY})
     {
         for (int32 Plank = -6; Plank <= 6; ++Plank)
         {
@@ -497,16 +550,17 @@ void AAshenArena::BuildRoadsAndBridges()
         const float Offset = static_cast<float>(Stone);
         RoadStones->AddInstance(
             FTransform(FRotator(0.0f, static_cast<float>((Stone * 17) % 13), 0.0f),
-                       FVector(RiverCenterX + Offset * 25.0f, 1'080.0f + static_cast<float>(Stone % 2) * 9.0f, 12.0f),
+                       FVector(RiverCenterX + Offset * 25.0f,
+                               Ashen::WorldLayout::CentralCrossingY + static_cast<float>(Stone % 2) * 9.0f, 12.0f),
                        FVector(0.22f, 0.66f + static_cast<float>((Stone + 6) % 3) * 0.08f, 0.10f)));
     }
 }
 
 void AAshenArena::BuildFortifications()
 {
-    constexpr float HumanX = 500.0f;
-    constexpr float BaseY = 1'080.0f;
-    for (const float Y : {790.0f, 1'370.0f})
+    constexpr float HumanX = Ashen::WorldLayout::HumanBaseX;
+    constexpr float BaseY = Ashen::WorldLayout::CenterY;
+    for (const float Y : {1'110.0f, 1'690.0f})
     {
         HumanWalls->AddInstance(
             FTransform(FRotator::ZeroRotator, FVector(HumanX - 15.0f, Y, 62.0f), FVector(4.8f, 0.28f, 1.22f)));
@@ -516,20 +570,20 @@ void AAshenArena::BuildFortifications()
             FTransform(FRotator::ZeroRotator, FVector(HumanX - 15.0f, Y, 126.0f), FVector(4.9f, 0.34f, 0.10f)));
     }
     HumanWalls->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(230.0f, BaseY, 62.0f), FVector(0.28f, 5.55f, 1.22f)));
+        FTransform(FRotator::ZeroRotator, FVector(330.0f, BaseY, 62.0f), FVector(0.28f, 5.55f, 1.22f)));
     HumanFoundations->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(230.0f, BaseY, 19.0f), FVector(0.38f, 5.72f, 0.38f)));
+        FTransform(FRotator::ZeroRotator, FVector(330.0f, BaseY, 19.0f), FVector(0.38f, 5.72f, 0.38f)));
     HumanTrim->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(230.0f, BaseY, 126.0f), FVector(0.34f, 5.64f, 0.10f)));
-    for (const float Y : {855.0f, 1'305.0f})
+        FTransform(FRotator::ZeroRotator, FVector(330.0f, BaseY, 126.0f), FVector(0.34f, 5.64f, 0.10f)));
+    for (const float Y : {1'175.0f, 1'625.0f})
     {
         HumanWalls->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(770.0f, Y, 62.0f), FVector(0.28f, 1.35f, 1.22f)));
+            FTransform(FRotator::ZeroRotator, FVector(870.0f, Y, 62.0f), FVector(0.28f, 1.35f, 1.22f)));
         HumanFoundations->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(770.0f, Y, 19.0f), FVector(0.38f, 1.48f, 0.38f)));
+            FTransform(FRotator::ZeroRotator, FVector(870.0f, Y, 19.0f), FVector(0.38f, 1.48f, 0.38f)));
     }
-    for (const FVector2D Corner : {FVector2D(230.0f, 790.0f), FVector2D(230.0f, 1'370.0f), FVector2D(770.0f, 790.0f),
-                                   FVector2D(770.0f, 1'370.0f)})
+    for (const FVector2D Corner : {FVector2D(330.0f, 1'110.0f), FVector2D(330.0f, 1'690.0f),
+                                   FVector2D(870.0f, 1'110.0f), FVector2D(870.0f, 1'690.0f)})
     {
         HumanTowers->AddInstance(
             FTransform(FRotator::ZeroRotator, FVector(Corner.X, Corner.Y, 95.0f), FVector(0.58f, 0.58f, 1.9f)));
@@ -542,35 +596,35 @@ void AAshenArena::BuildFortifications()
     }
     for (int32 Crenel = 0; Crenel < 9; ++Crenel)
     {
-        const float X = 110.0f + static_cast<float>(Crenel) * 96.0f;
-        for (const float Y : {790.0f, 1'370.0f})
+        const float X = 210.0f + static_cast<float>(Crenel) * 96.0f;
+        for (const float Y : {1'110.0f, 1'690.0f})
         {
             HumanWalls->AddInstance(
                 FTransform(FRotator::ZeroRotator, FVector(X, Y, 137.0f), FVector(0.24f, 0.36f, 0.28f)));
         }
     }
 
-    for (const float GateY : {955.0f, 1'205.0f})
+    for (const float GateY : {1'275.0f, 1'525.0f})
     {
         HumanTowers->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(770.0f, GateY, 102.0f), FVector(0.49f, 0.49f, 2.04f)));
+            FTransform(FRotator::ZeroRotator, FVector(870.0f, GateY, 102.0f), FVector(0.49f, 0.49f, 2.04f)));
         HumanRoofs->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(770.0f, GateY, 232.0f), FVector(0.66f, 0.66f, 0.74f)));
+            FTransform(FRotator::ZeroRotator, FVector(870.0f, GateY, 232.0f), FVector(0.66f, 0.66f, 0.74f)));
         HumanTrim->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(770.0f, GateY, 167.0f), FVector(0.61f, 0.61f, 0.11f)));
+            FTransform(FRotator::ZeroRotator, FVector(870.0f, GateY, 167.0f), FVector(0.61f, 0.61f, 0.11f)));
         HumanBanners->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(802.0f, GateY, 136.0f), FVector(0.035f, 0.28f, 0.62f)));
+            FTransform(FRotator::ZeroRotator, FVector(902.0f, GateY, 136.0f), FVector(0.035f, 0.28f, 0.62f)));
         BrazierBowls->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(795.0f, GateY, 72.0f), FVector(0.23f, 0.23f, 0.14f)));
+            FTransform(FRotator::ZeroRotator, FVector(895.0f, GateY, 72.0f), FVector(0.23f, 0.23f, 0.14f)));
         EmberCores->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(795.0f, GateY, 88.0f), FVector(0.14f, 0.14f, 0.18f)));
+            FTransform(FRotator::ZeroRotator, FVector(895.0f, GateY, 88.0f), FVector(0.14f, 0.14f, 0.18f)));
     }
     HumanWalls->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(770.0f, BaseY, 184.0f), FVector(0.33f, 1.02f, 0.18f)));
+        FTransform(FRotator::ZeroRotator, FVector(870.0f, BaseY, 184.0f), FVector(0.33f, 1.02f, 0.18f)));
     HumanTrim->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(770.0f, BaseY, 171.0f), FVector(0.38f, 1.12f, 0.10f)));
+        FTransform(FRotator::ZeroRotator, FVector(870.0f, BaseY, 171.0f), FVector(0.38f, 1.12f, 0.10f)));
 
-    const FVector2D MonsterBase(3'340.0f, BaseY);
+    const FVector2D MonsterBase(Ashen::WorldLayout::MonsterBaseX, BaseY);
     for (int32 Index = 0; Index < 18; ++Index)
     {
         const float Angle = 2.0f * PI * static_cast<float>(Index) / 18.0f;
@@ -598,12 +652,12 @@ void AAshenArena::BuildFortifications()
     }
     MonsterSinew->AddInstance(FTransform(FRotator::ZeroRotator, FVector(MonsterBase.X - 35.0f, MonsterBase.Y, 132.0f),
                                          FVector(1.18f, 0.86f, 0.72f)));
-    for (const float HearthY : {970.0f, 1'190.0f})
+    for (const float HearthY : {1'290.0f, 1'510.0f})
     {
         BrazierBowls->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(3'045.0f, HearthY, 65.0f), FVector(0.28f, 0.28f, 0.18f)));
+            FTransform(FRotator::ZeroRotator, FVector(3'905.0f, HearthY, 65.0f), FVector(0.28f, 0.28f, 0.18f)));
         EmberCores->AddInstance(
-            FTransform(FRotator::ZeroRotator, FVector(3'045.0f, HearthY, 84.0f), FVector(0.17f, 0.17f, 0.22f)));
+            FTransform(FRotator::ZeroRotator, FVector(3'905.0f, HearthY, 84.0f), FVector(0.17f, 0.17f, 0.22f)));
     }
 }
 
@@ -611,7 +665,7 @@ void AAshenArena::BuildVegetation()
 {
     FRandomStream Random(0xA51E2026);
 
-    for (int32 Index = 0; Index < 148; ++Index)
+    for (int32 Index = 0; Index < 205; ++Index)
     {
         const FVector2D Point(Random.FRandRange(90.0f, MapWidth - 90.0f), Random.FRandRange(90.0f, MapHeight - 90.0f));
         if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverCenterX) < 230.0f)
@@ -673,7 +727,58 @@ void AAshenArena::BuildVegetation()
         }
     }
 
-    for (int32 Index = 0; Index < 360; ++Index)
+    // Gravewood is a dense sightline landmark, while the authored route remains clear enough for unit reading.
+    for (int32 Index = 0; Index < 165; ++Index)
+    {
+        const FVector2D Point(Random.FRandRange(2'820.0f, 4'120.0f), Random.FRandRange(1'560.0f, 2'660.0f));
+        const float ForestMask = FMath::Square((Point.X - 3'430.0f) / 720.0f) +
+                                 FMath::Square((Point.Y - 2'080.0f) / 590.0f);
+        if (ForestMask > 1.0f || IsInGameplayClearing(Point))
+        {
+            continue;
+        }
+
+        const float GroundHeight = TerrainHeightAt(Point.X, Point.Y);
+        const float Height = Random.FRandRange(165.0f, 285.0f);
+        const float TrunkRadius = Random.FRandRange(11.0f, 19.0f);
+        TreeTrunks->AddInstance(
+            FTransform(FRotator(0.0f, Random.FRandRange(0.0f, 180.0f), Random.FRandRange(-7.0f, 7.0f)),
+                       FVector(Point.X, Point.Y, GroundHeight + Height * 0.5f),
+                       FVector(TrunkRadius / 50.0f, TrunkRadius / 50.0f, Height / 100.0f)));
+
+        if (Index % 4 == 0)
+        {
+            const FVector Crown(Point.X, Point.Y, GroundHeight + Height * 0.72f);
+            AddCylinderBetween(DeadBranches, Crown, Crown + FVector(62.0f, 28.0f, 66.0f), TrunkRadius * 0.42f);
+            AddCylinderBetween(DeadBranches, Crown, Crown + FVector(-54.0f, -36.0f, 51.0f), TrunkRadius * 0.34f);
+        }
+        else
+        {
+            const float CrownWidth = Random.FRandRange(0.88f, 1.32f);
+            TreeCrownsShadow->AddInstance(
+                FTransform(FRotator(0.0f, Random.FRandRange(0.0f, 180.0f), 0.0f),
+                           FVector(Point.X, Point.Y, GroundHeight + Height * 0.72f + 35.0f),
+                           FVector(CrownWidth * 1.20f, CrownWidth * 1.08f, Random.FRandRange(1.28f, 1.70f))));
+            TreeCrowns->AddInstance(
+                FTransform(FRotator(0.0f, Random.FRandRange(0.0f, 180.0f), 0.0f),
+                           FVector(Point.X, Point.Y, GroundHeight + Height + 38.0f),
+                           FVector(CrownWidth, CrownWidth * 0.92f, Random.FRandRange(1.42f, 1.92f))));
+        }
+
+        if (Index % 3 == 0)
+        {
+            const FVector Root(Point.X, Point.Y, GroundHeight + 8.0f);
+            for (int32 RootIndex = 0; RootIndex < 3; ++RootIndex)
+            {
+                const float Angle = Random.FRandRange(0.0f, 2.0f * PI);
+                const FVector End = Root + FVector(FMath::Cos(Angle) * Random.FRandRange(48.0f, 82.0f),
+                                                   FMath::Sin(Angle) * Random.FRandRange(48.0f, 82.0f), -3.0f);
+                AddCylinderBetween(ForestRoots, Root, End, Random.FRandRange(4.0f, 7.0f));
+            }
+        }
+    }
+
+    for (int32 Index = 0; Index < 520; ++Index)
     {
         const FVector2D Point(Random.FRandRange(45.0f, MapWidth - 45.0f), Random.FRandRange(45.0f, MapHeight - 45.0f));
         if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverCenterX) < 175.0f)
@@ -687,7 +792,7 @@ void AAshenArena::BuildVegetation()
                                Random.FRandRange(0.16f, 0.34f))));
     }
 
-    for (int32 Index = 0; Index < 52; ++Index)
+    for (int32 Index = 0; Index < 70; ++Index)
     {
         const FVector2D Point(Random.FRandRange(60.0f, MapWidth - 60.0f), Random.FRandRange(60.0f, MapHeight - 60.0f));
         if (IsInGameplayClearing(Point))
@@ -704,41 +809,68 @@ void AAshenArena::BuildVegetation()
 
 void AAshenArena::BuildLandmarks()
 {
-    for (int32 Index = 0; Index < 16; ++Index)
+    FRandomStream Random(0xB1AC4F0D);
+    for (int32 Index = 0; Index < 92; ++Index)
     {
-        const float X = 120.0f + static_cast<float>(Index) * 240.0f;
-        const float HeightScale = 1.15f + static_cast<float>((Index * 7) % 5) * 0.16f;
-        const FRotator Rotation(0.0f, static_cast<float>((Index * 23) % 90), 0.0f);
-        BoundaryMonoliths->AddInstance(FTransform(Rotation, {X, 55.0f, TerrainHeightAt(X, 55.0f) + HeightScale * 50.0f},
-                                                  {0.48f, 0.72f, HeightScale}));
-        BoundaryMonoliths->AddInstance(FTransform(
-            Rotation, {X, 2'105.0f, TerrainHeightAt(X, 2'105.0f) + HeightScale * 50.0f}, {0.48f, 0.72f, HeightScale}));
-        if (Index % 2 == 0)
+        const FVector2D Point(Random.FRandRange(880.0f, 2'040.0f), Random.FRandRange(390.0f, 1'300.0f));
+        const float MountainMask = FMath::Square((Point.X - 1'440.0f) / 660.0f) +
+                                   FMath::Square((Point.Y - 820.0f) / 520.0f);
+        if (MountainMask > 1.0f || IsInGameplayClearing(Point))
         {
-            for (const float Y : {105.0f, 2'055.0f})
-            {
-                Rocks->AddInstance(FTransform(
-                    FRotator(static_cast<float>((Index % 3) * 7), static_cast<float>(Index * 31), 0.0f),
-                    FVector(X + 42.0f, Y, TerrainHeightAt(X + 42.0f, Y) + 29.0f), FVector(0.92f, 0.56f, 0.58f)));
-            }
+            continue;
+        }
+
+        const float Scale = Random.FRandRange(0.55f, 1.35f);
+        MountainRocks->AddInstance(
+            FTransform(FRotator(Random.FRandRange(-18.0f, 18.0f), Random.FRandRange(0.0f, 180.0f),
+                                Random.FRandRange(-13.0f, 13.0f)),
+                       FVector(Point.X, Point.Y, TerrainHeightAt(Point.X, Point.Y) + Scale * 34.0f),
+                       FVector(Scale, Scale * Random.FRandRange(0.55f, 0.90f), Scale * Random.FRandRange(0.42f, 0.82f))));
+    }
+
+    // Two concealed iron adits make the mountain route valuable without opening a free path into either base.
+    for (const float MineX : {1'240.0f, 1'580.0f})
+    {
+        constexpr float MineY = 525.0f;
+        const float GroundHeight = TerrainHeightAt(MineX, MineY);
+        MineMouths->AddInstance(FTransform(FRotator::ZeroRotator, FVector(MineX, MineY, GroundHeight + 48.0f),
+                                           FVector(0.72f, 0.18f, 0.92f)));
+        const FVector Left(MineX - 48.0f, MineY - 13.0f, GroundHeight + 8.0f);
+        const FVector Right(MineX + 48.0f, MineY - 13.0f, GroundHeight + 8.0f);
+        AddCylinderBetween(MineTimbers, Left, Left + FVector(0.0f, 0.0f, 112.0f), 8.0f);
+        AddCylinderBetween(MineTimbers, Right, Right + FVector(0.0f, 0.0f, 112.0f), 8.0f);
+        AddCylinderBetween(MineTimbers, Left + FVector(0.0f, 0.0f, 106.0f),
+                           Right + FVector(0.0f, 0.0f, 106.0f), 9.0f);
+        for (int32 RockIndex = 0; RockIndex < 6; ++RockIndex)
+        {
+            const float Side = RockIndex % 2 == 0 ? -1.0f : 1.0f;
+            MountainRocks->AddInstance(
+                FTransform(FRotator(0.0f, Random.FRandRange(0.0f, 180.0f), Random.FRandRange(-18.0f, 18.0f)),
+                           FVector(MineX + Side * Random.FRandRange(62.0f, 108.0f),
+                                   MineY + Random.FRandRange(-15.0f, 55.0f), GroundHeight + Random.FRandRange(18.0f, 36.0f)),
+                           FVector(Random.FRandRange(0.38f, 0.78f), Random.FRandRange(0.30f, 0.62f),
+                                   Random.FRandRange(0.28f, 0.56f))));
         }
     }
-    for (int32 Index = 0; Index < 8; ++Index)
+
+    // Gravewood's spirit caches are the rotational counterpart to the mountain mines.
+    for (const FVector2D Cache : {FVector2D(3'220.0f, 2'440.0f), FVector2D(3'560.0f, 2'460.0f)})
     {
-        const float Y = 240.0f + static_cast<float>(Index) * 240.0f;
-        const float HeightScale = 1.2f + static_cast<float>((Index * 3) % 4) * 0.2f;
-        BoundaryMonoliths->AddInstance(FTransform({0.0f, static_cast<float>(Index * 11), 0.0f},
-                                                  {55.0f, Y, TerrainHeightAt(55.0f, Y) + HeightScale * 50.0f},
-                                                  {0.72f, 0.48f, HeightScale}));
-        BoundaryMonoliths->AddInstance(FTransform({0.0f, static_cast<float>(Index * 11), 0.0f},
-                                                  {3'785.0f, Y, TerrainHeightAt(3'785.0f, Y) + HeightScale * 50.0f},
-                                                  {0.72f, 0.48f, HeightScale}));
+        for (int32 Index = 0; Index < 6; ++Index)
+        {
+            const float Angle = 2.0f * PI * static_cast<float>(Index) / 6.0f;
+            const FVector Position(Cache.X + FMath::Cos(Angle) * 62.0f, Cache.Y + FMath::Sin(Angle) * 48.0f,
+                                   TerrainHeightAt(Cache.X, Cache.Y) + 35.0f);
+            RitualStones->AddInstance(
+                FTransform(FRotator(0.0f, FMath::RadiansToDegrees(Angle), 0.0f), Position, FVector(0.16f, 0.16f, 0.70f)));
+        }
     }
 
     for (int32 Index = 0; Index < 12; ++Index)
     {
         const float Angle = 2.0f * PI * static_cast<float>(Index) / 12.0f;
-        const FVector Position(RiverCenterX + FMath::Cos(Angle) * 205.0f, 1'080.0f + FMath::Sin(Angle) * 135.0f, 48.0f);
+        const FVector Position(RiverCenterX + FMath::Cos(Angle) * 205.0f,
+                               Ashen::WorldLayout::CenterY + FMath::Sin(Angle) * 135.0f, 48.0f);
         RitualStones->AddInstance(
             FTransform({0.0f, FMath::RadiansToDegrees(Angle), 0.0f}, Position, {0.25f, 0.25f, 0.95f}));
     }
@@ -747,7 +879,7 @@ void AAshenArena::BuildLandmarks()
     {
         const FVector Direction = FRotator(0.0f, Yaw, 0.0f).RotateVector(FVector::ForwardVector);
         const FVector Side = FVector::CrossProduct(FVector::UpVector, Direction);
-        const FVector Center(RiverCenterX, 1'080.0f, 18.0f);
+        const FVector Center(RiverCenterX, Ashen::WorldLayout::CenterY, 18.0f);
         const FVector Left = Center - Side * 106.0f + Direction * 24.0f;
         const FVector Right = Center + Side * 106.0f + Direction * 24.0f;
         AddCylinderBetween(MythicArches, Left, Left + FVector(0.0f, 0.0f, 116.0f), 9.0f);
@@ -755,9 +887,11 @@ void AAshenArena::BuildLandmarks()
         AddCylinderBetween(MythicArches, Left + FVector(0.0f, 0.0f, 116.0f), Right + FVector(0.0f, 0.0f, 116.0f), 8.0f);
     }
     BrazierBowls->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, 1'080.0f, 44.0f), FVector(0.36f, 0.36f, 0.20f)));
+        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 44.0f),
+                   FVector(0.36f, 0.36f, 0.20f)));
     EmberCores->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, 1'080.0f, 66.0f), FVector(0.19f, 0.19f, 0.25f)));
+        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 66.0f),
+                   FVector(0.19f, 0.19f, 0.25f)));
 }
 
 void AAshenArena::BeginPlay()
@@ -781,6 +915,8 @@ void AAshenArena::BeginPlay()
                                             0.86f, 90.0f, 21.0f, 0.18f, 0.22f);
     const auto DarkIron = SurfaceStyle({0.055f, 0.060f, 0.058f}, {0.14f, 0.145f, 0.135f}, {0.24f, 0.23f, 0.20f}, 0.44f,
                                        95.0f, 24.0f, 0.12f, 0.58f);
+    const auto MineDark = SurfaceStyle({0.004f, 0.005f, 0.005f}, {0.012f, 0.014f, 0.013f}, {0.025f, 0.026f, 0.023f},
+                                       0.98f, 80.0f, 19.0f, 0.08f, 0.08f);
     const auto Bark = SurfaceStyle({0.050f, 0.028f, 0.015f}, {0.105f, 0.060f, 0.030f}, {0.18f, 0.115f, 0.055f}, 0.98f,
                                    75.0f, 18.0f, 0.20f, 0.14f);
     const auto Pine = SurfaceStyle({0.020f, 0.058f, 0.030f}, {0.045f, 0.105f, 0.052f}, {0.10f, 0.16f, 0.085f}, 0.99f,
@@ -817,6 +953,10 @@ void AAshenArena::BeginPlay()
     Ashen::Materials::ApplySurface(DeadBranches, this, Bark);
     Ashen::Materials::ApplySurface(GrassTufts, this, MoorPatch);
     Ashen::Materials::ApplySurface(Rocks, this, WetStone);
+    Ashen::Materials::ApplySurface(MountainRocks, this, FoundationStone);
+    Ashen::Materials::ApplySurface(MineMouths, this, MineDark);
+    Ashen::Materials::ApplySurface(MineTimbers, this, WeatheredWood);
+    Ashen::Materials::ApplySurface(ForestRoots, this, Bark);
     Ashen::Materials::ApplySurface(HumanWalls, this, HumanStone);
     Ashen::Materials::ApplySurface(HumanTowers, this, HumanStone);
     Ashen::Materials::ApplySurface(HumanRoofs, this, HumanRoof);
@@ -828,7 +968,6 @@ void AAshenArena::BeginPlay()
     Ashen::Materials::ApplySurface(MonsterRibs, this, Bone);
     Ashen::Materials::ApplySurface(MonsterSinew, this, Flesh);
     Ashen::Materials::ApplySurface(BonePalisade, this, Bone);
-    Ashen::Materials::ApplySurface(BoundaryMonoliths, this, FoundationStone);
     Ashen::Materials::ApplySurface(RitualStones, this, MythicStone);
     Ashen::Materials::ApplySurface(MythicArches, this, MythicStone);
     Ashen::Materials::ApplySurface(BrazierBowls, this, DarkIron);

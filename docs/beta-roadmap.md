@@ -42,6 +42,8 @@ Visual foundation delivered:
 - Painterly-realism art target, faction shape grammar, and asset intake contract
 - Sculpted overscan terrain, layered world materials, water, roads, bridges, forests, faction
   fortifications, ritual landmarks, lighting, fog, and capture automation
+- Expanded 4,800 by 2,800 competitive layout with a standard central front, tested mountain and Gravewood
+  rotations, hidden high-risk resources, three river crossings, and natural terrain boundaries
 - Deterministic interaction collision preserved independently from visual terrain
 - Unreal regression coverage for required world assets and collision behavior
 
