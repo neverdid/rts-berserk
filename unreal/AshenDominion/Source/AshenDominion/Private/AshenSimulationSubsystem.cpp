@@ -591,7 +591,7 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
         Assault.entities = std::move(Army);
         Assault.target_entity = HumanCommand->id;
         static_cast<void>(Runtime->Simulation.execute_now(std::move(Assault)));
-        UE_LOG(LogAshenSimulation, Display, TEXT("The Hollow Choir launches an assault at tick %lld"), Tick);
+        UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy launches an assault at tick %lld"), Tick);
     }
 }
 

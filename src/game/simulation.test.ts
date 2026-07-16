@@ -29,6 +29,15 @@ function runFor(seconds: number, step: number, tick: () => void): void {
 }
 
 describe('RTS simulation', () => {
+  it('keeps a single-unit formation centered on the issued destination', () => {
+    const state = createInitialState('pvp')
+    const worker = state.entities.find((entity) => entity.owner === 1 && entity.type === 'worker')!
+    const destination = { x: 620, y: 1180 }
+
+    expect(issueMove(state, [worker.id], destination, 1).ok).toBe(true)
+    expect(worker.order).toEqual({ type: 'move', target: destination })
+  })
+
   it('starts local PvP with structural parity and faction-specific capacity', () => {
     const state = createInitialState('pvp')
     const buildingsOne = state.entities.filter((entity) => entity.owner === 1 && entity.kind === 'building')

@@ -106,7 +106,18 @@ npm run build
 npm run test:visual
 ```
 
+After building the portable core, run the cross-runtime contract suite:
+
+```bash
+npm run test:parity
+```
+
+The parity suite authors each scenario once, executes it in both TypeScript and C++, and compares the
+shared catalog plus canonical movement, economy, production, combat, supply, and victory checkpoints.
+GitHub Actions runs this gate on every push and pull request.
+
 See [docs/cpp-migration.md](docs/cpp-migration.md) for ownership boundaries and the remaining migration
 stages, [docs/research-brief.md](docs/research-brief.md) for the genre and market findings, and
 [docs/world-bible.md](docs/world-bible.md) for the original setting, characters, factions, campaign,
-visual direction, and source-safe inspiration ledger.
+visual direction, and source-safe inspiration ledger. The ordered path from the current foundation to
+beta is tracked in [docs/beta-roadmap.md](docs/beta-roadmap.md).

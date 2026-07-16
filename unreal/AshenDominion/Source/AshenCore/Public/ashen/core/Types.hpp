@@ -44,7 +44,7 @@ struct Vec2 {
 }
 
 enum class PlayerId : std::uint8_t { One, Two };
-enum class FactionId : std::uint8_t { Candlebound, Hollow, Sepulcher };
+enum class FactionId : std::uint8_t { Compact, Ascendancy, Concord };
 enum class MatchMode : std::uint8_t { Story, Skirmish, PvP };
 enum class MatchStatus : std::uint8_t { Playing, Won, Lost };
 enum class EntityKind : std::uint8_t { Unit, Building };
@@ -103,7 +103,7 @@ struct EntityDefinition {
 };
 
 struct FactionDefinition {
-  FactionId id{FactionId::Candlebound};
+  FactionId id{FactionId::Compact};
   std::string_view name{};
   std::int32_t income_basis_points{10'000};
 };
@@ -165,7 +165,7 @@ struct ResourceNode {
 
 struct PlayerState {
   PlayerId id{PlayerId::One};
-  FactionId faction{FactionId::Candlebound};
+  FactionId faction{FactionId::Compact};
   std::int32_t ore{260};
   std::int32_t supply_used{};
   std::int32_t supply_cap{};
@@ -178,8 +178,8 @@ struct NavigationObstacle {
 
 struct SimulationConfig {
   MatchMode mode{MatchMode::Skirmish};
-  FactionId player_one_faction{FactionId::Candlebound};
-  FactionId player_two_faction{FactionId::Hollow};
+  FactionId player_one_faction{FactionId::Compact};
+  FactionId player_two_faction{FactionId::Ascendancy};
   Vec2 map_size{world(1'920, 1'080)};
   std::int32_t navigation_cell_size{world(36, 0).x};
   std::vector<NavigationObstacle> navigation_obstacles{
