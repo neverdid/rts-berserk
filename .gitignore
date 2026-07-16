@@ -15,6 +15,9 @@ artifacts/
 
 # Native C++ build output
 build
+!unreal/AshenDominion/Build/
+!unreal/AshenDominion/Build/WorldArt/
+!unreal/AshenDominion/Build/WorldArt/*.py
 out
 .vs
 CMakeUserPresets.json

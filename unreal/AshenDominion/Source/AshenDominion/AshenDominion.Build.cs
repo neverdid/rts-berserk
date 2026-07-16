@@ -13,6 +13,7 @@ public class AshenDominion : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
+            "ProceduralMeshComponent",
             "AshenCore"
         });
     }
