@@ -131,12 +131,48 @@ constexpr std::array kEntityTypes{EntityType::Worker, EntityType::Vanguard, Enti
       return "attack-move";
     case OrderType::Gather:
       return "gather";
+    case OrderType::Build:
+      return "build";
     case OrderType::Patrol:
       return "patrol";
     case OrderType::Hold:
       return "hold";
   }
   throw std::runtime_error{"Unknown order value."};
+}
+
+[[nodiscard]] std::string_view research_token(const ResearchId research) {
+  switch (research) {
+    case ResearchId::TierTwo:
+      return "tier-two";
+    case ResearchId::TemperedOaths:
+      return "tempered-oaths";
+    case ResearchId::Wardcraft:
+      return "wardcraft";
+    case ResearchId::ChorusOfKnives:
+      return "chorus-of-knives";
+    case ResearchId::PitBroods:
+      return "pit-broods";
+    case ResearchId::VaultPlate:
+      return "vault-plate";
+    case ResearchId::SiegeLiturgy:
+      return "siege-liturgy";
+  }
+  throw std::runtime_error{"Unknown research value."};
+}
+
+[[nodiscard]] ResearchId parse_research(const std::string_view value) {
+  constexpr std::array values{
+      ResearchId::TierTwo,       ResearchId::TemperedOaths, ResearchId::Wardcraft,
+      ResearchId::ChorusOfKnives, ResearchId::PitBroods,     ResearchId::VaultPlate,
+      ResearchId::SiegeLiturgy,
+  };
+  for (const auto research : values) {
+    if (research_token(research) == value) {
+      return research;
+    }
+  }
+  throw std::runtime_error{"Unknown research token: " + std::string{value}};
 }
 
 [[nodiscard]] std::string_view status_token(const MatchStatus status) {
@@ -224,6 +260,8 @@ class ParityRunner final {
         apply_entity(input);
       } else if (instruction == "resource") {
         apply_resource(input);
+      } else if (instruction == "control") {
+        apply_control(input);
       } else if (instruction == "move") {
         apply_move(input);
       } else if (instruction == "attack") {
@@ -236,6 +274,12 @@ class ParityRunner final {
         apply_train(input);
       } else if (instruction == "rally") {
         apply_rally(input);
+      } else if (instruction == "build") {
+        apply_build(input);
+      } else if (instruction == "research") {
+        apply_research(input);
+      } else if (instruction == "power") {
+        apply_power(input);
       } else if (instruction == "run") {
         apply_run(input);
       } else {
@@ -265,7 +309,20 @@ class ParityRunner final {
       const auto& state = current.player(player);
       output << (player == PlayerId::One ? "" : ",") << json_string(std::to_string(player_number(player)))
              << ":{\"faction\":" << json_string(faction_token(state.faction)) << ",\"ore\":" << state.ore
-             << ",\"supplyUsed\":" << state.supply_used << ",\"supplyCap\":" << state.supply_cap << '}';
+             << ",\"supplyUsed\":" << state.supply_used << ",\"supplyCap\":" << state.supply_cap
+             << ",\"resolve\":" << state.resolve << ",\"powerCooldownTicks\":"
+             << state.power_cooldown_ticks << ",\"techTier\":" << static_cast<int>(state.tech_tier)
+             << ",\"researched\":[";
+      bool first_research = true;
+      for (std::size_t index = 0; index < kResearchCount; ++index) {
+        if (!state.researched[index]) {
+          continue;
+        }
+        output << (first_research ? "" : ",")
+               << json_string(research_token(static_cast<ResearchId>(index)));
+        first_research = false;
+      }
+      output << "]}";
     }
 
     output << "},\"entities\":{";
@@ -282,7 +339,14 @@ class ParityRunner final {
              << json_string(entity_type_token(entity->type)) << ",\"xMilli\":" << entity->position.x
              << ",\"yMilli\":" << entity->position.y << ",\"hpMilli\":"
              << static_cast<std::int64_t>(entity->hit_points) * kWorldScale << ",\"order\":"
-             << json_string(order_token(entity->order.type)) << ",\"carrying\":" << entity->carrying << '}';
+             << json_string(order_token(entity->order.type)) << ",\"carrying\":" << entity->carrying
+             << ",\"resolve\":" << entity->resolve << ",\"underConstruction\":"
+             << (entity->under_construction ? "true" : "false") << ",\"constructionProgressBasis\":"
+             << (entity->under_construction && entity->construction_total_ticks > 0
+                     ? entity->construction_ticks * 10'000 / entity->construction_total_ticks
+                     : 10'000)
+             << ",\"queueCount\":" << entity->production_queue.size() << ",\"visibleToOne\":"
+             << (current.is_entity_visible_to(*entity, PlayerId::One) ? "true" : "false") << '}';
     }
 
     output << "},\"counts\":{";
@@ -313,7 +377,25 @@ class ParityRunner final {
         output << "{\"amount\":" << resource->amount << '}';
       }
     }
-    output << "}}\n";
+    output << "},\"controls\":{";
+    first = true;
+    for (const auto& [alias, id] : control_aliases_) {
+      output << (first ? "" : ",") << json_string(alias) << ':';
+      first = false;
+      const auto* point = current.find_control_point(id);
+      if (point == nullptr) {
+        output << "null";
+        continue;
+      }
+      output << "{\"owner\":";
+      if (point->owner.has_value()) {
+        output << player_number(*point->owner);
+      } else {
+        output << "null";
+      }
+      output << ",\"influence\":" << point->influence << '}';
+    }
+    output << "},\"ruinTide\":" << current.ruin_tide() << "}\n";
   }
 
  private:
@@ -341,7 +423,7 @@ class ParityRunner final {
     const auto x = read<std::int32_t>(input, "x coordinate");
     const auto y = read<std::int32_t>(input, "y coordinate");
     require_end(input);
-    if (entity_aliases_.contains(alias) || resource_aliases_.contains(alias)) {
+    if (alias_exists(alias)) {
       throw std::runtime_error{"Duplicate alias: " + alias};
     }
     entity_aliases_.emplace(alias, simulation().spawn_entity(player, type, world(x, y)));
@@ -354,10 +436,22 @@ class ParityRunner final {
     const auto amount = read<std::int32_t>(input, "amount");
     const auto radius = read<std::int32_t>(input, "radius");
     require_end(input);
-    if (entity_aliases_.contains(alias) || resource_aliases_.contains(alias)) {
+    if (alias_exists(alias)) {
       throw std::runtime_error{"Duplicate alias: " + alias};
     }
     resource_aliases_.emplace(alias, simulation().add_resource(world(x, y), amount, world(radius, 0).x));
+  }
+
+  void apply_control(std::istringstream& input) {
+    const auto alias = read<std::string>(input, "control-point alias");
+    const auto x = read<std::int32_t>(input, "x coordinate");
+    const auto y = read<std::int32_t>(input, "y coordinate");
+    const auto radius = read<std::int32_t>(input, "radius");
+    require_end(input);
+    if (alias_exists(alias)) {
+      throw std::runtime_error{"Duplicate alias: " + alias};
+    }
+    control_aliases_.emplace(alias, simulation().add_control_point(world(x, y), world(radius, 0).x));
   }
 
   void apply_move(std::istringstream& input) {
@@ -420,6 +514,50 @@ class ParityRunner final {
         Command{.player = player, .type = CommandType::SetRallyPoint, .target = target, .producer = producer}));
   }
 
+  void apply_build(std::istringstream& input) {
+    const auto player = parse_player(read<int>(input, "player"));
+    const auto worker = entity_id(read<std::string>(input, "worker alias"));
+    const auto type = parse_entity_type(read<std::string>(input, "building type"));
+    const auto x = read<std::int32_t>(input, "x coordinate");
+    const auto y = read<std::int32_t>(input, "y coordinate");
+    const auto alias = read<std::string>(input, "new building alias");
+    require_end(input);
+    if (alias_exists(alias)) {
+      throw std::runtime_error{"Duplicate alias: " + alias};
+    }
+    const auto result = simulation().execute_now(Command{.player = player,
+                                                          .type = CommandType::Build,
+                                                          .entities = {worker},
+                                                          .target = world(x, y),
+                                                          .building_type = type});
+    record(result);
+    if (!result.ok) {
+      return;
+    }
+    const auto newest = std::ranges::max_element(simulation().entities(), {}, &Entity::id);
+    if (newest == simulation().entities().end()) {
+      throw std::runtime_error{"A successful build command did not create a construction site."};
+    }
+    entity_aliases_.emplace(alias, newest->id);
+  }
+
+  void apply_research(std::istringstream& input) {
+    const auto player = parse_player(read<int>(input, "player"));
+    const auto producer = entity_id(read<std::string>(input, "producer alias"));
+    const auto research = parse_research(read<std::string>(input, "research"));
+    require_end(input);
+    record(simulation().execute_now(Command{.player = player,
+                                             .type = CommandType::Research,
+                                             .producer = producer,
+                                             .research = research}));
+  }
+
+  void apply_power(std::istringstream& input) {
+    const auto player = parse_player(read<int>(input, "player"));
+    require_end(input);
+    record(simulation().execute_now(Command{.player = player, .type = CommandType::ActivatePower}));
+  }
+
   void apply_run(std::istringstream& input) {
     const auto ticks = read<Tick>(input, "tick count");
     require_end(input);
@@ -464,12 +602,17 @@ class ParityRunner final {
     return found->second;
   }
 
+  [[nodiscard]] bool alias_exists(const std::string& alias) const {
+    return entity_aliases_.contains(alias) || resource_aliases_.contains(alias) || control_aliases_.contains(alias);
+  }
+
   void record(const CommandResult result) { results_.push_back(result.ok); }
 
   bool version_seen_{};
   std::optional<Simulation> simulation_{};
   std::map<std::string, EntityId> entity_aliases_{};
   std::map<std::string, ResourceId> resource_aliases_{};
+  std::map<std::string, ControlPointId> control_aliases_{};
   std::vector<bool> results_{};
 };
 
@@ -483,13 +626,16 @@ void write_catalog(std::ostream& output) {
       output << (first ? "" : ",") << "{\"faction\":" << json_string(faction_token(faction))
              << ",\"factionName\":" << json_string(faction_definition_value.name)
              << ",\"incomeBasisPoints\":" << faction_definition_value.income_basis_points
+             << ",\"resolveDrift\":" << faction_definition_value.resolve_drift
              << ",\"type\":" << json_string(entity_type_token(type)) << ",\"kind\":"
              << json_string(entity_kind_token(definition.kind)) << ",\"label\":" << json_string(definition.label)
              << ",\"cost\":" << definition.cost << ",\"buildTicks\":" << definition.build_ticks
              << ",\"hitPoints\":" << definition.hit_points << ",\"radiusMilli\":" << definition.radius
              << ",\"speedMilliPerTick\":" << definition.speed_per_tick << ",\"rangeMilli\":"
              << definition.attack_range << ",\"damage\":" << definition.damage << ",\"cooldownTicks\":"
-             << definition.attack_cooldown_ticks << ",\"armor\":" << json_string(armor_token(definition.armor))
+             << definition.attack_cooldown_ticks << ",\"sightMilli\":" << definition.sight
+             << ",\"terror\":" << definition.terror << ",\"ward\":" << definition.ward
+             << ",\"armor\":" << json_string(armor_token(definition.armor))
              << ",\"bonusAgainst\":";
       if (definition.has_damage_bonus) {
         output << json_string(armor_token(definition.bonus_against));

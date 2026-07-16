@@ -19,8 +19,10 @@ class ASHENCORE_API Simulation final {
   void step();
   void run(Tick ticks);
 
-  [[nodiscard]] EntityId spawn_entity(PlayerId owner, EntityType type, Vec2 position);
+  [[nodiscard]] EntityId spawn_entity(PlayerId owner, EntityType type, Vec2 position,
+                                      bool under_construction = false);
   [[nodiscard]] ResourceId add_resource(Vec2 position, std::int32_t amount, std::int32_t radius = 24'000);
+  [[nodiscard]] ControlPointId add_control_point(Vec2 position, std::int32_t radius = 92'000);
 
   [[nodiscard]] Tick tick() const noexcept { return tick_; }
   [[nodiscard]] MatchMode mode() const noexcept { return config_.mode; }
@@ -31,14 +33,25 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] const PlayerState& player(PlayerId id) const noexcept;
   [[nodiscard]] const std::vector<Entity>& entities() const noexcept { return entities_; }
   [[nodiscard]] const std::vector<ResourceNode>& resources() const noexcept { return resources_; }
+  [[nodiscard]] const std::vector<ControlPoint>& control_points() const noexcept { return control_points_; }
   [[nodiscard]] const Entity* find_entity(EntityId id) const noexcept;
   [[nodiscard]] const ResourceNode* find_resource(ResourceId id) const noexcept;
+  [[nodiscard]] const ControlPoint* find_control_point(ControlPointId id) const noexcept;
+  [[nodiscard]] std::int32_t ruin_tide() const noexcept { return ruin_tide_; }
+  [[nodiscard]] bool is_position_visible_to(Vec2 position, PlayerId owner,
+                                            std::int32_t buffer = 0) const noexcept;
+  [[nodiscard]] bool is_entity_visible_to(const Entity& entity, PlayerId owner) const noexcept;
+  [[nodiscard]] bool can_place_building(Vec2 position, EntityType type) const noexcept;
+  [[nodiscard]] bool has_research(PlayerId owner, ResearchId research) const noexcept;
+  [[nodiscard]] std::int32_t production_cost(PlayerId owner, EntityType type) const noexcept;
+  [[nodiscard]] Tick production_ticks(PlayerId owner, EntityType type) const noexcept;
   [[nodiscard]] std::uint64_t state_hash() const noexcept;
 
  private:
   [[nodiscard]] PlayerState& mutable_player(PlayerId id) noexcept;
   [[nodiscard]] Entity* find_entity_mutable(EntityId id) noexcept;
   [[nodiscard]] ResourceNode* find_resource_mutable(ResourceId id) noexcept;
+  [[nodiscard]] ControlPoint* find_control_point_mutable(ControlPointId id) noexcept;
   [[nodiscard]] CommandResult apply_command(const Command& command);
   [[nodiscard]] CommandResult apply_move(const Command& command);
   [[nodiscard]] CommandResult apply_attack(const Command& command);
@@ -49,10 +62,22 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] CommandResult apply_hold(const Command& command);
   [[nodiscard]] CommandResult apply_patrol(const Command& command);
   [[nodiscard]] CommandResult apply_set_rally_point(const Command& command);
+  [[nodiscard]] CommandResult apply_build(const Command& command);
+  [[nodiscard]] CommandResult apply_research(const Command& command);
+  [[nodiscard]] CommandResult apply_activate_power(const Command& command);
+  [[nodiscard]] CommandResult apply_retreat(const Command& command);
+  [[nodiscard]] CommandResult apply_set_stance(const Command& command);
   void apply_due_commands();
+  void update_ruin_tide();
+  void update_research();
   void update_production();
+  void update_control_points();
+  void update_resolve();
   void update_orders();
+  void update_auto_aggro();
+  void update_defenses();
   void update_gather(Entity& entity);
+  void update_build(Entity& entity);
   void update_attack_move(Entity& entity);
   void update_patrol(Entity& entity);
   void update_hold(Entity& entity);
@@ -73,6 +98,8 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] Vec2 nearest_navigable(Vec2 position, std::int32_t radius) const noexcept;
   [[nodiscard]] const Entity* nearest_command(PlayerId owner, Vec2 position) const noexcept;
   [[nodiscard]] std::int32_t queued_supply(PlayerId owner) const noexcept;
+  [[nodiscard]] std::int32_t resolve_multiplier_basis(const Entity& entity) const noexcept;
+  void apply_research_bonuses(Entity& entity, bool preserve_health);
 
   SimulationConfig config_{};
   Tick tick_{};
@@ -82,9 +109,12 @@ class ASHENCORE_API Simulation final {
   std::array<bool, 2> command_seen_{};
   std::vector<Entity> entities_{};
   std::vector<ResourceNode> resources_{};
+  std::vector<ControlPoint> control_points_{};
   std::vector<Command> command_queue_{};
+  std::int32_t ruin_tide_{4};
   std::uint32_t next_entity_id_{1};
   std::uint32_t next_resource_id_{1};
+  std::uint32_t next_control_point_id_{1};
   std::uint64_t next_sequence_{1};
 };
 

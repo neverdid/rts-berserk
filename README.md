@@ -11,8 +11,9 @@ The repository now has three cooperating layers:
 
 - `unreal/AshenDominion/` is the playable Unreal Engine 5.8 C++ client. It currently provides an RTS
   camera, edge scrolling and zoom, click and drag-box selection, contextual move/attack/gather commands,
-  attack-move, patrol, hold, stop, queued orders, control groups, production hotkeys, a deployment menu,
-  tactical minimap, a skirmish AI commander, two distinct
+  attack-move, patrol, retreat, stances, queued orders, control groups, worker construction, research,
+  faction powers, resolve, fog of war, capture relics, production and rally queues, a clickable command
+  card, a deployment menu, tactical minimap, and a build-order-aware skirmish AI commander. It also has two distinct
   multi-part faction silhouettes, and a procedural dark-medieval battlefield with castles, forests,
   roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
@@ -26,10 +27,10 @@ The Unreal directory and C++ module retain the internal name `AshenDominion` for
 targets, generated files, and module symbols is a separate migration so the playable native foundation
 is not destabilized by a cosmetic path change.
 
-The Unreal skirmish foundation is playable, but it is not being presented as a finished game. Story
-mission objectives, campaign presentation, advanced AI personalities, construction, fog of war, matchmaking, and
-authoritative online PvP are later milestones. The deterministic core already supports story, skirmish,
-and PvP match modes so those features can share one ruleset.
+The Unreal competitive vertical slice is playable, but it is not being presented as a finished game. Authored
+production terrain and characters, story mission objectives, campaign presentation, advanced AI personalities,
+matchmaking, and authoritative online PvP are later milestones. The deterministic core already supports story,
+skirmish, and PvP match modes so those features can share one ruleset.
 
 ## Unreal client
 
@@ -54,8 +55,13 @@ Current controls:
 - Mouse wheel: smooth zoom
 - A then left mouse: attack-move; P then left mouse: patrol; R then left mouse: set a rally point
 - S: stop; H: hold position; Shift while issuing an order: append it to the unit's command queue
+- B or T with one worker selected, then left mouse: place an Assembly Hall or Signal Bastion
+- X: retreat to the command keep; Z, C, or V: aggressive, defensive, or stand-ground stance
 - Ctrl+0-9: assign a control group; 0-9: recall it; press the same group twice to center the camera
 - Q and E: train the primary or secondary unit from a selected producer
+- Y: research the Black-Iron Age; U: research the selected structure's faction doctrine
+- F: activate the faction power when its ore cost and cooldown are ready
+- Command-card buttons mirror the hotkeys and show unavailable tech or cooldown actions as disabled
 - Enter or Space: begin the skirmish from the deployment screen
 - Escape: cancel a pending command mode, or pause and return to the deployment screen
 

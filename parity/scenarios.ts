@@ -1,5 +1,6 @@
 import { RACE_DEFS, STARTING_ORE, getEntityDef } from '../src/game/catalog'
 import {
+  activateRacePower,
   createEntity,
   createInitialState,
   getPlayerSupply,
@@ -7,11 +8,23 @@ import {
   issueAttackMove,
   issueGather,
   issueMove,
+  isEntityVisibleTo,
   setRallyPoint,
+  startBuilding,
   startProduction,
+  startResearch,
   updateSimulation,
 } from '../src/game/simulation'
-import type { EntityType, GameState, PlayerId, RaceId, UnitType, Vec2 } from '../src/game/types'
+import type {
+  BuildingType,
+  EntityType,
+  GameState,
+  PlayerId,
+  RaceId,
+  ResearchId,
+  UnitType,
+  Vec2,
+} from '../src/game/types'
 
 const TICKS_PER_SECOND = 20
 const ENTITY_TYPES: EntityType[] = ['worker', 'vanguard', 'skirmisher', 'command', 'barracks', 'turret']
@@ -31,6 +44,12 @@ interface ScenarioResource {
   radius: number
 }
 
+interface ScenarioControlPoint {
+  alias: string
+  position: Vec2
+  radius: number
+}
+
 type ScenarioAction =
   | { type: 'move'; player: PlayerId; entities: string[]; target: Vec2 }
   | { type: 'attack'; player: PlayerId; entities: string[]; target: string }
@@ -38,6 +57,16 @@ type ScenarioAction =
   | { type: 'gather'; player: PlayerId; entities: string[]; resource: string }
   | { type: 'train'; player: PlayerId; producer: string; unit: UnitType }
   | { type: 'rally'; player: PlayerId; producer: string; target: Vec2 }
+  | {
+      type: 'build'
+      player: PlayerId
+      worker: string
+      building: BuildingType
+      target: Vec2
+      alias: string
+    }
+  | { type: 'research'; player: PlayerId; producer: string; research: ResearchId }
+  | { type: 'power'; player: PlayerId }
   | { type: 'run'; ticks: number }
 
 export interface ParityCheckpoint {
@@ -50,6 +79,7 @@ export interface ParityScenario {
   factions: Record<PlayerId, RaceId>
   entities: ScenarioEntity[]
   resources: ScenarioResource[]
+  controls?: ScenarioControlPoint[]
   actions: ScenarioAction[]
   checkpoints: ParityCheckpoint[]
 }
@@ -63,6 +93,11 @@ interface EntitySnapshot {
   hpMilli?: number
   order?: string
   carrying?: number
+  resolve?: number
+  underConstruction?: boolean
+  constructionProgressBasis?: number
+  queueCount?: number
+  visibleToOne?: boolean
 }
 
 export interface ParitySnapshot {
@@ -70,16 +105,31 @@ export interface ParitySnapshot {
   status: GameState['status']
   winner: PlayerId | null
   results: boolean[]
-  players: Record<string, { faction: RaceId; ore: number; supplyUsed: number; supplyCap: number }>
+  players: Record<
+    string,
+    {
+      faction: RaceId
+      ore: number
+      supplyUsed: number
+      supplyCap: number
+      resolve: number
+      powerCooldownTicks: number
+      techTier: number
+      researched: ResearchId[]
+    }
+  >
   entities: Record<string, EntitySnapshot>
   counts: Record<string, Record<EntityType, number>>
   resources: Record<string, { amount: number } | null>
+  controls: Record<string, { owner: PlayerId | null; influence: number } | null>
+  ruinTide: number
 }
 
 export interface CatalogSnapshot {
   faction: RaceId
   factionName: string
   incomeBasisPoints: number
+  resolveDrift: number
   type: EntityType
   kind: 'unit' | 'building'
   label: string
@@ -91,6 +141,9 @@ export interface CatalogSnapshot {
   rangeMilli: number
   damage: number
   cooldownTicks: number
+  sightMilli: number
+  terror: number
+  ward: number
   armor: string
   bonusAgainst: string | null
   bonusDamage: number
@@ -222,6 +275,113 @@ export const PARITY_SCENARIOS: ParityScenario[] = [
       { path: 'counts.2.command' },
     ],
   },
+  {
+    name: 'worker construction completes a supply structure',
+    factions: { 1: 'compact', 2: 'ascendancy' },
+    entities: [
+      { alias: 'compact_keep', owner: 1, type: 'command', position: { x: 100, y: 100 } },
+      { alias: 'builder', owner: 1, type: 'worker', position: { x: 155, y: 100 } },
+      { alias: 'quiet_house', owner: 2, type: 'command', position: { x: 1050, y: 680 } },
+    ],
+    resources: [],
+    actions: [
+      {
+        type: 'build',
+        player: 1,
+        worker: 'builder',
+        building: 'barracks',
+        target: { x: 310, y: 180 },
+        alias: 'assembly_hall',
+      },
+      { type: 'run', ticks: 380 },
+    ],
+    checkpoints: [
+      ...sharedCheckpoints,
+      { path: 'players.1.ore' },
+      { path: 'players.1.supplyCap' },
+      { path: 'entities.assembly_hall.alive' },
+      { path: 'entities.assembly_hall.underConstruction' },
+      { path: 'entities.assembly_hall.constructionProgressBasis' },
+      { path: 'counts.1.barracks' },
+    ],
+  },
+  {
+    name: 'research unlocks ranged production',
+    factions: { 1: 'compact', 2: 'ascendancy' },
+    entities: [
+      { alias: 'compact_keep', owner: 1, type: 'command', position: { x: 100, y: 100 } },
+      { alias: 'assembly_hall', owner: 1, type: 'barracks', position: { x: 230, y: 100 } },
+      { alias: 'quiet_house', owner: 2, type: 'command', position: { x: 1050, y: 680 } },
+    ],
+    resources: [],
+    actions: [
+      { type: 'research', player: 1, producer: 'compact_keep', research: 'tier-two' },
+      { type: 'run', ticks: 321 },
+      { type: 'train', player: 1, producer: 'assembly_hall', unit: 'skirmisher' },
+    ],
+    checkpoints: [
+      ...sharedCheckpoints,
+      { path: 'players.1.ore' },
+      { path: 'players.1.techTier' },
+      { path: 'players.1.researched' },
+      { path: 'entities.assembly_hall.queueCount' },
+    ],
+  },
+  {
+    name: 'ascendancy doctrine manifests a capped combat body',
+    factions: { 1: 'ascendancy', 2: 'compact' },
+    entities: [
+      { alias: 'quiet_house', owner: 1, type: 'command', position: { x: 120, y: 120 } },
+      { alias: 'compact_keep', owner: 2, type: 'command', position: { x: 1050, y: 680 } },
+    ],
+    resources: [],
+    actions: [{ type: 'power', player: 1 }],
+    checkpoints: [
+      ...sharedCheckpoints,
+      { path: 'players.1.ore' },
+      { path: 'players.1.powerCooldownTicks' },
+      { path: 'players.1.supplyUsed' },
+      { path: 'counts.1.vanguard' },
+    ],
+  },
+  {
+    name: 'relic capture and dread resolve share fixed outcomes',
+    factions: { 1: 'compact', 2: 'ascendancy' },
+    entities: [
+      { alias: 'compact_keep', owner: 1, type: 'command', position: { x: 100, y: 100 } },
+      { alias: 'line', owner: 1, type: 'vanguard', position: { x: 300, y: 300 } },
+      { alias: 'quiet_house', owner: 2, type: 'command', position: { x: 430, y: 300 } },
+    ],
+    resources: [],
+    controls: [{ alias: 'ford_relic', position: { x: 300, y: 300 }, radius: 90 }],
+    actions: [{ type: 'run', ticks: 150 }],
+    checkpoints: [
+      ...sharedCheckpoints,
+      { path: 'controls.ford_relic.owner' },
+      { path: 'controls.ford_relic.influence' },
+      { path: 'players.1.resolve', tolerance: 3 },
+      { path: 'entities.line.resolve', tolerance: 3 },
+      { path: 'ruinTide', tolerance: 3 },
+    ],
+  },
+  {
+    name: 'scouting reveals an enemy through authoritative sight',
+    factions: { 1: 'compact', 2: 'ascendancy' },
+    entities: [
+      { alias: 'compact_keep', owner: 1, type: 'command', position: { x: 100, y: 100 } },
+      { alias: 'scout', owner: 1, type: 'worker', position: { x: 150, y: 300 } },
+      { alias: 'quiet_house', owner: 2, type: 'command', position: { x: 1050, y: 300 } },
+    ],
+    resources: [],
+    actions: [
+      { type: 'move', player: 1, entities: ['scout'], target: { x: 850, y: 300 } },
+      { type: 'run', ticks: 200 },
+    ],
+    checkpoints: [
+      ...sharedCheckpoints,
+      { path: 'entities.quiet_house.visibleToOne' },
+    ],
+  },
 ]
 
 export function serializeScenario(scenario: ParityScenario): string {
@@ -233,6 +393,9 @@ export function serializeScenario(scenario: ParityScenario): string {
     lines.push(
       `resource ${resource.alias} ${resource.position.x} ${resource.position.y} ${resource.amount} ${resource.radius}`,
     )
+  })
+  scenario.controls?.forEach((control) => {
+    lines.push(`control ${control.alias} ${control.position.x} ${control.position.y} ${control.radius}`)
   })
   scenario.actions.forEach((action) => {
     switch (action.type) {
@@ -253,6 +416,17 @@ export function serializeScenario(scenario: ParityScenario): string {
         break
       case 'rally':
         lines.push(`rally ${action.player} ${action.producer} ${action.target.x} ${action.target.y}`)
+        break
+      case 'build':
+        lines.push(
+          `build ${action.player} ${action.worker} ${action.building} ${action.target.x} ${action.target.y} ${action.alias}`,
+        )
+        break
+      case 'research':
+        lines.push(`research ${action.player} ${action.producer} ${action.research}`)
+        break
+      case 'power':
+        lines.push(`power ${action.player}`)
         break
       case 'run':
         lines.push(`run ${action.ticks}`)
@@ -278,6 +452,15 @@ export function executeTypeScriptScenario(scenario: ParityScenario): ParitySnaps
       maxAmount: entry.amount,
     })
   })
+  scenario.controls?.forEach((entry) => {
+    state.controlPoints.push({
+      id: entry.alias,
+      position: { ...entry.position },
+      radius: entry.radius,
+      owner: null,
+      influence: 0,
+    })
+  })
 
   const results: boolean[] = []
   const ids = (aliases: string[]): string[] => aliases.map((alias) => requiredAlias(entityIds, alias))
@@ -301,6 +484,37 @@ export function executeTypeScriptScenario(scenario: ParityScenario): ParitySnaps
       case 'rally':
         results.push(setRallyPoint(state, [requiredAlias(entityIds, action.producer)], action.target, action.player).ok)
         break
+      case 'build': {
+        const result = startBuilding(
+          state,
+          requiredAlias(entityIds, action.worker),
+          action.building,
+          action.target,
+          action.player,
+        )
+        results.push(result.ok)
+        if (result.ok) {
+          const site = state.entities.at(-1)
+          if (!site || site.type !== action.building) {
+            throw new Error(`A successful build action did not create ${action.building}.`)
+          }
+          entityIds.set(action.alias, site.id)
+        }
+        break
+      }
+      case 'research':
+        results.push(
+          startResearch(
+            state,
+            requiredAlias(entityIds, action.producer),
+            action.research,
+            action.player,
+          ).ok,
+        )
+        break
+      case 'power':
+        results.push(activateRacePower(state, action.player).ok)
+        break
       case 'run':
         for (let tick = 0; tick < action.ticks; tick += 1) {
           updateSimulation(state, 1 / TICKS_PER_SECOND)
@@ -322,6 +536,7 @@ export function typeScriptCatalog(): CatalogSnapshot[] {
         faction,
         factionName: race.name,
         incomeBasisPoints: Math.round(race.incomeRate * 10_000),
+        resolveDrift: race.resolveDrift,
         type,
         kind: definition.kind,
         label: definition.label,
@@ -333,6 +548,9 @@ export function typeScriptCatalog(): CatalogSnapshot[] {
         rangeMilli: definition.range * 1_000,
         damage: definition.damage,
         cooldownTicks: Math.round(definition.attackCooldown * TICKS_PER_SECOND),
+        sightMilli: definition.sight * 1_000,
+        terror: definition.terror,
+        ward: definition.ward,
         armor: definition.armor,
         bonusAgainst: definition.bonusAgainst[0] ?? null,
         bonusDamage: definition.bonusDamage,
@@ -387,10 +605,14 @@ function snapshotState(
   results: boolean[],
 ): ParitySnapshot {
   const entities: Record<string, EntitySnapshot> = {}
-  scenario.entities.forEach((entry) => {
-    const id = requiredAlias(entityIds, entry.alias)
+  const trackedAliases = [
+    ...scenario.entities.map((entry) => entry.alias),
+    ...scenario.actions.filter((action) => action.type === 'build').map((action) => action.alias),
+  ]
+  trackedAliases.forEach((alias) => {
+    const id = requiredAlias(entityIds, alias)
     const entity = state.entities.find((candidate) => candidate.id === id)
-    entities[entry.alias] = entity
+    entities[alias] = entity
       ? {
           alive: true,
           owner: entity.owner,
@@ -400,6 +622,13 @@ function snapshotState(
           hpMilli: Math.round(entity.hp * 1_000),
           order: entity.order.type,
           carrying: entity.carrying,
+          resolve: entity.resolve,
+          underConstruction: entity.underConstruction,
+          constructionProgressBasis: entity.underConstruction
+            ? Math.round(entity.constructionProgress * 10_000)
+            : 10_000,
+          queueCount: entity.queue.length,
+          visibleToOne: isEntityVisibleTo(state, entity, 1),
         }
       : { alive: false }
   })
@@ -426,6 +655,10 @@ function snapshotState(
           ore: state.players[player].ore,
           supplyUsed: supply.used,
           supplyCap: supply.cap,
+          resolve: state.players[player].resolve,
+          powerCooldownTicks: Math.round(state.players[player].powerCooldown * TICKS_PER_SECOND),
+          techTier: state.players[player].techTier,
+          researched: [...state.players[player].researched],
         },
       ]
     }),
@@ -438,6 +671,16 @@ function snapshotState(
     }),
   )
 
+  const controls = Object.fromEntries(
+    (scenario.controls ?? []).map((entry) => {
+      const point = state.controlPoints.find((candidate) => candidate.id === entry.alias)
+      return [
+        entry.alias,
+        point ? { owner: point.owner, influence: Math.round(point.influence * 100) } : null,
+      ]
+    }),
+  )
+
   return {
     tick: state.tick,
     status: state.status,
@@ -447,6 +690,8 @@ function snapshotState(
     entities,
     counts,
     resources,
+    controls,
+    ruinTide: state.ruinTide,
   }
 }
 

@@ -90,6 +90,10 @@ bool AAshenPlayerController::InputKey(const FInputKeyEventArgs& Params)
             ExecutePendingCommand();
             return true;
         }
+        if (!bFrontEndVisible && Params.Key == EKeys::LeftMouseButton && HandleCommandCardClick())
+        {
+            return true;
+        }
         if (!bFrontEndVisible && Params.Key == EKeys::A)
         {
             BeginAttackMove();
@@ -113,6 +117,51 @@ bool AAshenPlayerController::InputKey(const FInputKeyEventArgs& Params)
         if (!bFrontEndVisible && Params.Key == EKeys::H)
         {
             HoldSelected();
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::B)
+        {
+            BeginBuild(EAshenEntityArchetype::Barracks);
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::T)
+        {
+            BeginBuild(EAshenEntityArchetype::Turret);
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::Y)
+        {
+            ResearchTier();
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::U)
+        {
+            ResearchFactionDoctrine();
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::F)
+        {
+            ActivateFactionPower();
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::X)
+        {
+            RetreatSelected();
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::Z)
+        {
+            SetSelectedStance(EAshenStance::Aggressive);
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::C)
+        {
+            SetSelectedStance(EAshenStance::Defensive);
+            return true;
+        }
+        if (!bFrontEndVisible && Params.Key == EKeys::V)
+        {
+            SetSelectedStance(EAshenStance::Hold);
             return true;
         }
 
@@ -186,6 +235,10 @@ FString AAshenPlayerController::GetCommandModeLabel() const
         return TEXT("PATROL  //  CHOOSE DESTINATION");
     case EAshenCommandMode::RallyPoint:
         return TEXT("RALLY POINT  //  CHOOSE DESTINATION");
+    case EAshenCommandMode::BuildBarracks:
+        return TEXT("ASSEMBLY HALL  //  CHOOSE A CLEAR CONSTRUCTION SITE");
+    case EAshenCommandMode::BuildTurret:
+        return TEXT("SIGNAL BASTION  //  CHOOSE A CLEAR CONSTRUCTION SITE");
     case EAshenCommandMode::None:
         return {};
     }
@@ -220,6 +273,167 @@ bool AAshenPlayerController::GetCommandFeedback(FVector& OutLocation, bool& bOut
     OutLocation = LastCommandLocation;
     bOutHostile = bLastCommandHostile;
     OutStrength = 1.0f - static_cast<float>(Age / FeedbackDuration);
+    return true;
+}
+
+void AAshenPlayerController::StartSkirmish()
+{
+    DeploySkirmish();
+}
+
+bool AAshenPlayerController::GetCommandButtonRect(const int32 Slot, FVector2D& OutMin, FVector2D& OutMax) const
+{
+    if (Slot < 0 || Slot >= 9)
+    {
+        return false;
+    }
+    int32 ViewportWidth = 0;
+    int32 ViewportHeight = 0;
+    GetViewportSize(ViewportWidth, ViewportHeight);
+    if (ViewportWidth <= 0 || ViewportHeight <= 0)
+    {
+        return false;
+    }
+
+    constexpr float Gap = 4.0f;
+    constexpr float CellHeight = 40.0f;
+    const float GridWidth = FMath::Clamp(static_cast<float>(ViewportWidth) *
+                                         (ViewportWidth < 900 ? 0.39f : 0.30f), 246.0f, 342.0f);
+    const float CellWidth = (GridWidth - Gap * 2.0f) / 3.0f;
+    const float GridX = static_cast<float>(ViewportWidth) - GridWidth - 20.0f;
+    const float GridY = static_cast<float>(ViewportHeight) - 148.0f;
+    const int32 Column = Slot % 3;
+    const int32 Row = Slot / 3;
+    OutMin = {GridX + static_cast<float>(Column) * (CellWidth + Gap),
+              GridY + static_cast<float>(Row) * (CellHeight + Gap)};
+    OutMax = {OutMin.X + CellWidth, OutMin.Y + CellHeight};
+    return true;
+}
+
+FString AAshenPlayerController::GetCommandButtonLabel(const int32 Slot) const
+{
+    const EAshenEntityArchetype Archetype = PrimarySelectedArchetype();
+    if (Archetype == EAshenEntityArchetype::Worker)
+    {
+        const TCHAR* Labels[] = {TEXT("ASSEMBLY HALL"), TEXT("SIGNAL BASTION"), TEXT(""), TEXT("ADVANCE"),
+                                 TEXT("STOP"), TEXT("HOLD"), TEXT("RETREAT"), TEXT("DEFENSIVE"),
+                                 TEXT("OATH POWER")};
+        return Slot >= 0 && Slot < 9 ? Labels[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Vanguard || Archetype == EAshenEntityArchetype::Skirmisher)
+    {
+        const TCHAR* Labels[] = {TEXT("ADVANCE"), TEXT("STOP"), TEXT("HOLD"), TEXT("PATROL"),
+                                 TEXT("RETREAT"), TEXT("AGGRESSIVE"), TEXT("DEFENSIVE"),
+                                 TEXT("STAND GROUND"), TEXT("OATH POWER")};
+        return Slot >= 0 && Slot < 9 ? Labels[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Command)
+    {
+        const FAshenPlayerView PlayerView = Simulation() != nullptr ? Simulation()->GetPlayerView(0) : FAshenPlayerView{};
+        const TCHAR* ResearchLabel = PlayerView.TechTier < 2 ? TEXT("BLACK-IRON AGE") : TEXT("FIELD CHARTERS");
+        const TCHAR* Labels[] = {TEXT("TRAIN WORKER"), ResearchLabel, TEXT("RALLY"), TEXT(""), TEXT(""),
+                                 TEXT(""), TEXT(""), TEXT(""), TEXT("OATH POWER")};
+        return Slot >= 0 && Slot < 9 ? Labels[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Barracks)
+    {
+        const TCHAR* Labels[] = {TEXT("VANGUARD"), TEXT("SKIRMISHER"), TEXT("DRILLS"), TEXT("RALLY"),
+                                 TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("OATH POWER")};
+        return Slot >= 0 && Slot < 9 ? Labels[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Turret)
+    {
+        return Slot == 8 ? TEXT("OATH POWER") : TEXT("");
+    }
+    return Slot == 8 ? TEXT("OATH POWER") : TEXT("");
+}
+
+FString AAshenPlayerController::GetCommandButtonHotkey(const int32 Slot) const
+{
+    const EAshenEntityArchetype Archetype = PrimarySelectedArchetype();
+    if (Archetype == EAshenEntityArchetype::Worker)
+    {
+        const TCHAR* Keys[] = {TEXT("B"), TEXT("T"), TEXT(""), TEXT("A"), TEXT("S"), TEXT("H"),
+                               TEXT("X"), TEXT("C"), TEXT("F")};
+        return Slot >= 0 && Slot < 9 ? Keys[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Vanguard || Archetype == EAshenEntityArchetype::Skirmisher)
+    {
+        const TCHAR* Keys[] = {TEXT("A"), TEXT("S"), TEXT("H"), TEXT("P"), TEXT("X"), TEXT("Z"),
+                               TEXT("C"), TEXT("V"), TEXT("F")};
+        return Slot >= 0 && Slot < 9 ? Keys[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Command)
+    {
+        const TCHAR* Keys[] = {TEXT("Q"), TEXT("Y/U"), TEXT("R"), TEXT(""), TEXT(""), TEXT(""),
+                               TEXT(""), TEXT(""), TEXT("F")};
+        return Slot >= 0 && Slot < 9 ? Keys[Slot] : TEXT("");
+    }
+    if (Archetype == EAshenEntityArchetype::Barracks)
+    {
+        const TCHAR* Keys[] = {TEXT("Q"), TEXT("E"), TEXT("U"), TEXT("R"), TEXT(""), TEXT(""),
+                               TEXT(""), TEXT(""), TEXT("F")};
+        return Slot >= 0 && Slot < 9 ? Keys[Slot] : TEXT("");
+    }
+    return Slot == 8 ? TEXT("F") : TEXT("");
+}
+
+bool AAshenPlayerController::IsCommandButtonEnabled(const int32 Slot) const
+{
+    if (GetCommandButtonLabel(Slot).IsEmpty())
+    {
+        return false;
+    }
+    UAshenSimulationSubsystem* Sim = Simulation();
+    if (Sim == nullptr)
+    {
+        return false;
+    }
+    if (Slot == 8)
+    {
+        const FAshenPlayerView PlayerView = Sim->GetPlayerView(0);
+        return PlayerView.PowerCooldownSeconds <= 0.0f && PlayerView.Ore >= 45;
+    }
+    const int32 BuildingId = SelectedBuildingId();
+    if (PrimarySelectedArchetype() == EAshenEntityArchetype::Command && Slot == 1)
+    {
+        const EAshenResearch Research = ContextResearch();
+        return Sim->GetResearchViews(BuildingId).ContainsByPredicate([Research](const FAshenResearchView& View)
+        {
+            return View.Research == Research && View.bAvailable;
+        });
+    }
+    if (PrimarySelectedArchetype() == EAshenEntityArchetype::Barracks && Slot == 2)
+    {
+        return Sim->GetResearchViews(BuildingId).ContainsByPredicate([](const FAshenResearchView& View)
+        {
+            return View.Research == EAshenResearch::TemperedOaths && View.bAvailable;
+        });
+    }
+    if (PrimarySelectedArchetype() == EAshenEntityArchetype::Barracks && Slot == 1)
+    {
+        return Sim->GetPlayerView(0).TechTier >= 2;
+    }
+    return true;
+}
+
+bool AAshenPlayerController::GetPlacementPreview(FVector& OutLocation, EAshenEntityArchetype& OutBuilding,
+                                                  bool& bOutValid) const
+{
+    if (PendingCommand != EAshenCommandMode::BuildBarracks && PendingCommand != EAshenCommandMode::BuildTurret)
+    {
+        return false;
+    }
+    FHitResult Hit;
+    if (!GetHitResultUnderCursorByChannel(UEngineTypes::ConvertToTraceType(ECC_Visibility), true, Hit))
+    {
+        return false;
+    }
+    OutLocation = Hit.ImpactPoint;
+    OutBuilding = PendingCommand == EAshenCommandMode::BuildBarracks
+                      ? EAshenEntityArchetype::Barracks
+                      : EAshenEntityArchetype::Turret;
+    bOutValid = Simulation() != nullptr && Simulation()->CanPlaceBuilding(OutBuilding, OutLocation);
     return true;
 }
 
@@ -431,12 +645,22 @@ void AAshenPlayerController::ExecutePendingCommand()
     }
 
     const EAshenCommandMode CommandMode = PendingCommand;
-    PendingCommand = EAshenCommandMode::None;
     const bool bQueue = IsQueueModifierDown();
     bool bIssued = false;
     bool bHostile = false;
     FVector FeedbackLocation = Hit.ImpactPoint;
-    if (CommandMode == EAshenCommandMode::RallyPoint)
+    if (CommandMode == EAshenCommandMode::BuildBarracks || CommandMode == EAshenCommandMode::BuildTurret)
+    {
+        const TArray<int32> Workers = SelectedWorkerIds();
+        if (Workers.Num() == 1)
+        {
+            const EAshenEntityArchetype Building = CommandMode == EAshenCommandMode::BuildBarracks
+                                                       ? EAshenEntityArchetype::Barracks
+                                                       : EAshenEntityArchetype::Turret;
+            bIssued = Sim->IssueBuild(Workers[0], Building, Hit.ImpactPoint);
+        }
+    }
+    else if (CommandMode == EAshenCommandMode::RallyPoint)
     {
         const int32 BuildingId = SelectedBuildingId();
         bIssued = BuildingId > 0 && Sim->IssueSetRallyPoint(BuildingId, Hit.ImpactPoint);
@@ -472,6 +696,7 @@ void AAshenPlayerController::ExecutePendingCommand()
 
     if (bIssued)
     {
+        PendingCommand = EAshenCommandMode::None;
         RegisterCommandFeedback(FeedbackLocation, bHostile);
     }
 }
@@ -492,6 +717,19 @@ void AAshenPlayerController::BeginRallyPoint()
 {
     PruneSelection();
     PendingCommand = SelectedBuildingId() <= 0 ? EAshenCommandMode::None : EAshenCommandMode::RallyPoint;
+}
+
+void AAshenPlayerController::BeginBuild(const EAshenEntityArchetype Building)
+{
+    PruneSelection();
+    if (SelectedWorkerIds().Num() != 1)
+    {
+        PendingCommand = EAshenCommandMode::None;
+        return;
+    }
+    PendingCommand = Building == EAshenEntityArchetype::Barracks
+                         ? EAshenCommandMode::BuildBarracks
+                         : EAshenCommandMode::BuildTurret;
 }
 
 void AAshenPlayerController::StopSelected()
@@ -542,6 +780,26 @@ void AAshenPlayerController::HoldSelected()
     }
 }
 
+void AAshenPlayerController::RetreatSelected()
+{
+    PendingCommand = EAshenCommandMode::None;
+    PruneSelection();
+    if (UAshenSimulationSubsystem* Sim = Simulation())
+    {
+        Sim->IssueRetreat(SelectedUnitIds());
+    }
+}
+
+void AAshenPlayerController::SetSelectedStance(const EAshenStance Stance)
+{
+    PendingCommand = EAshenCommandMode::None;
+    PruneSelection();
+    if (UAshenSimulationSubsystem* Sim = Simulation())
+    {
+        Sim->IssueSetStance(SelectedUnitIds(), Stance);
+    }
+}
+
 void AAshenPlayerController::TrainPrimary()
 {
     if (bFrontEndVisible)
@@ -567,6 +825,30 @@ void AAshenPlayerController::TrainSecondary()
     if (BuildingId > 0 && Simulation() != nullptr)
     {
         Simulation()->IssueTrain(BuildingId, true);
+    }
+}
+
+void AAshenPlayerController::ResearchTier()
+{
+    if (!bFrontEndVisible && Simulation() != nullptr)
+    {
+        Simulation()->IssueResearch(SelectedBuildingId(), EAshenResearch::TierTwo);
+    }
+}
+
+void AAshenPlayerController::ResearchFactionDoctrine()
+{
+    if (!bFrontEndVisible && Simulation() != nullptr)
+    {
+        Simulation()->IssueResearch(SelectedBuildingId(), ContextResearch());
+    }
+}
+
+void AAshenPlayerController::ActivateFactionPower()
+{
+    if (!bFrontEndVisible && Simulation() != nullptr)
+    {
+        Simulation()->IssueActivatePower();
     }
 }
 
@@ -620,6 +902,82 @@ void AAshenPlayerController::HandleFrontEndClick()
     if (Mouse.X >= ButtonMin.X && Mouse.X <= ButtonMax.X && Mouse.Y >= ButtonMin.Y && Mouse.Y <= ButtonMax.Y)
     {
         DeploySkirmish();
+    }
+}
+
+bool AAshenPlayerController::HandleCommandCardClick()
+{
+    float MouseX = 0.0f;
+    float MouseY = 0.0f;
+    if (!GetMousePosition(MouseX, MouseY))
+    {
+        return false;
+    }
+    const FVector2D Mouse(MouseX, MouseY);
+    for (int32 Slot = 0; Slot < 9; ++Slot)
+    {
+        FVector2D Min;
+        FVector2D Max;
+        if (GetCommandButtonRect(Slot, Min, Max) && Mouse.X >= Min.X && Mouse.X <= Max.X &&
+            Mouse.Y >= Min.Y && Mouse.Y <= Max.Y)
+        {
+            if (IsCommandButtonEnabled(Slot))
+            {
+                ExecuteCommandSlot(Slot);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+void AAshenPlayerController::ExecuteCommandSlot(const int32 Slot)
+{
+    const EAshenEntityArchetype Archetype = PrimarySelectedArchetype();
+    if (Slot == 8)
+    {
+        ActivateFactionPower();
+        return;
+    }
+    if (Archetype == EAshenEntityArchetype::Worker)
+    {
+        if (Slot == 0) BeginBuild(EAshenEntityArchetype::Barracks);
+        else if (Slot == 1) BeginBuild(EAshenEntityArchetype::Turret);
+        else if (Slot == 3) BeginAttackMove();
+        else if (Slot == 4) StopSelected();
+        else if (Slot == 5) HoldSelected();
+        else if (Slot == 6) RetreatSelected();
+        else if (Slot == 7) SetSelectedStance(EAshenStance::Defensive);
+        return;
+    }
+    if (Archetype == EAshenEntityArchetype::Vanguard || Archetype == EAshenEntityArchetype::Skirmisher)
+    {
+        if (Slot == 0) BeginAttackMove();
+        else if (Slot == 1) StopSelected();
+        else if (Slot == 2) HoldSelected();
+        else if (Slot == 3) BeginPatrol();
+        else if (Slot == 4) RetreatSelected();
+        else if (Slot == 5) SetSelectedStance(EAshenStance::Aggressive);
+        else if (Slot == 6) SetSelectedStance(EAshenStance::Defensive);
+        else if (Slot == 7) SetSelectedStance(EAshenStance::Hold);
+        return;
+    }
+    if (Archetype == EAshenEntityArchetype::Command)
+    {
+        if (Slot == 0) TrainPrimary();
+        else if (Slot == 1)
+        {
+            Simulation()->GetPlayerView(0).TechTier < 2 ? ResearchTier() : ResearchFactionDoctrine();
+        }
+        else if (Slot == 2) BeginRallyPoint();
+        return;
+    }
+    if (Archetype == EAshenEntityArchetype::Barracks)
+    {
+        if (Slot == 0) TrainPrimary();
+        else if (Slot == 1) TrainSecondary();
+        else if (Slot == 2) ResearchFactionDoctrine();
+        else if (Slot == 3) BeginRallyPoint();
     }
 }
 
@@ -778,6 +1136,25 @@ int32 AAshenPlayerController::SelectedBuildingId() const
         }
     }
     return 0;
+}
+
+EAshenEntityArchetype AAshenPlayerController::PrimarySelectedArchetype() const
+{
+    for (const TWeakObjectPtr<AAshenEntityActor>& Actor : SelectedActors)
+    {
+        if (Actor.IsValid())
+        {
+            return Actor->GetArchetype();
+        }
+    }
+    return static_cast<EAshenEntityArchetype>(255);
+}
+
+EAshenResearch AAshenPlayerController::ContextResearch() const
+{
+    return PrimarySelectedArchetype() == EAshenEntityArchetype::Command
+               ? EAshenResearch::Wardcraft
+               : EAshenResearch::TemperedOaths;
 }
 
 UAshenSimulationSubsystem* AAshenPlayerController::Simulation() const

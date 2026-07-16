@@ -17,12 +17,28 @@ const FLinearColor Bone(0.82f, 0.78f, 0.67f, 1.0f);
 const FLinearColor DimBone(0.48f, 0.47f, 0.43f, 1.0f);
 const FLinearColor Bronze(0.78f, 0.43f, 0.10f, 1.0f);
 const FLinearColor Blood(0.58f, 0.035f, 0.045f, 1.0f);
+const FLinearColor Verdigris(0.12f, 0.47f, 0.43f, 1.0f);
+const FLinearColor ValidGreen(0.18f, 0.68f, 0.32f, 1.0f);
 constexpr float WorldWidth = 3'840.0f;
 constexpr float WorldHeight = 2'160.0f;
 
 bool ContainsPoint(const FVector2D& Min, const FVector2D& Max, const FVector2D& Point)
 {
     return Point.X >= Min.X && Point.X <= Max.X && Point.Y >= Min.Y && Point.Y <= Max.Y;
+}
+
+FString StanceLabel(const EAshenStance Stance)
+{
+    switch (Stance)
+    {
+    case EAshenStance::Aggressive:
+        return TEXT("AGGRESSIVE");
+    case EAshenStance::Defensive:
+        return TEXT("DEFENSIVE");
+    case EAshenStance::Hold:
+        return TEXT("STAND GROUND");
+    }
+    return TEXT("AGGRESSIVE");
 }
 }
 
@@ -48,6 +64,7 @@ void AAshenHUD::DrawHUD()
     }
 
     DrawOrderRoute(*Controller, *Simulation);
+    DrawPlacementPreview(*Controller);
     DrawCommandFeedback(*Controller);
     DrawBattleHud(*Controller, *Simulation);
     DrawSelectionMarquee(*Controller);
@@ -150,75 +167,190 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
 {
     const float Width = Canvas->SizeX;
     const float Height = Canvas->SizeY;
-    const bool bCompact = Height < 650.0f;
-    const float SafeWidth = bCompact ? Width * 0.78f : Width;
-    const float SafeHeight = bCompact ? Height * 0.78f : Height;
+    const bool bCompact = Width < 980.0f || Height < 650.0f;
     const FAshenPlayerView Player = Simulation.GetPlayerView(0);
     const int32 Selected = Controller.GetSelectedCount();
     const int32 PrimaryEntityId = Controller.GetPrimarySelectedEntityId();
+    const FAshenEntityView Entity = Simulation.GetEntityView(PrimaryEntityId);
 
-    const float LeftWidth = FMath::Min(410.0f, (SafeWidth - 64.0f) * 0.52f);
-    DrawRect(Ink, 20.0f, 18.0f, LeftWidth, 66.0f);
-    DrawRect(Bronze, 20.0f, 18.0f, 4.0f, 66.0f);
-    DrawText(TEXT("VOWFALL"), Bone, 38.0f, 29.0f, GEngine->GetMediumFont(), 1.0f, false);
-    DrawText(bCompact ? TEXT("CINDER COMPACT  //  BLACK-IRON FORD")
-                      : TEXT("CINDER COMPACT  //  THE BRIDGE OF NAMES"),
-             DimBone, 38.0f, 57.0f,
-             GEngine->GetSmallFont(), 0.84f, false);
+    const float TopX = 14.0f;
+    const float TopY = 14.0f;
+    const float TopWidth = Width - 28.0f;
+    DrawRect(Ink, TopX, TopY, TopWidth, 72.0f);
+    DrawRect(Bronze, TopX, TopY, 4.0f, 72.0f);
+    DrawText(TEXT("VOWFALL"), Bone, 30.0f, 25.0f, GEngine->GetMediumFont(), 1.0f, false);
+    DrawText(bCompact ? TEXT("CINDER COMPACT") : TEXT("CINDER COMPACT  //  BLACK-IRON FORD"),
+             DimBone, 30.0f, 54.0f, GEngine->GetSmallFont(), 0.76f, false);
 
-    const float ResourceWidth = FMath::Min(350.0f, (SafeWidth - 64.0f) * 0.42f);
-    const float ResourceX = SafeWidth - ResourceWidth - 20.0f;
-    DrawRect(Ink, ResourceX, 18.0f, ResourceWidth, 66.0f);
-    DrawRect(Bronze, ResourceX, 82.0f, ResourceWidth, 2.0f);
-    DrawRect(FLinearColor(0.57f, 0.16f, 0.055f), ResourceX + 18.0f, 35.0f, 13.0f, 13.0f);
-    DrawText(FString::Printf(TEXT("CURSED IRON  %d"), Player.Ore), Bone, ResourceX + 42.0f, 30.0f,
-             GEngine->GetSmallFont(), 0.94f, false);
-    DrawRect(FLinearColor(0.33f, 0.40f, 0.37f), ResourceX + 18.0f, 59.0f, 13.0f, 13.0f);
-    DrawText(FString::Printf(TEXT("WARHOST  %d / %d"), Player.SupplyUsed, Player.SupplyCap), Bone,
-             ResourceX + 42.0f, 54.0f, GEngine->GetSmallFont(), 0.94f, false);
+    const float MetricsX = FMath::Max(bCompact ? 242.0f : 360.0f, Width - (bCompact ? 410.0f : 520.0f));
+    const float MetricWidth = (Width - MetricsX - 22.0f) / 4.0f;
+    const FString MetricLabels[] = {TEXT("IRON"), TEXT("WARHOST"), TEXT("RESOLVE"), TEXT("RUIN TIDE")};
+    const FString MetricValues[] = {
+        FString::FromInt(Player.Ore),
+        FString::Printf(TEXT("%d/%d"), Player.SupplyUsed, Player.SupplyCap),
+        FString::Printf(TEXT("%d%%"), Player.Resolve),
+        FString::Printf(TEXT("%d%%"), Simulation.GetRuinTide()),
+    };
+    const FLinearColor MetricColors[] = {Blood, FLinearColor(0.32f, 0.41f, 0.36f), Bronze, Verdigris};
+    for (int32 Index = 0; Index < 4; ++Index)
+    {
+        const float X = MetricsX + static_cast<float>(Index) * MetricWidth;
+        DrawRect(MetricColors[Index], X, 32.0f, 3.0f, 34.0f);
+        DrawText(MetricLabels[Index], DimBone, X + 9.0f, 27.0f, GEngine->GetSmallFont(), 0.61f, false);
+        DrawText(MetricValues[Index], Bone, X + 9.0f, 48.0f, GEngine->GetSmallFont(), 0.91f, false);
+    }
 
-    DrawTacticalMap();
+    const float ObjectiveWidth = FMath::Min(610.0f, Width - 40.0f);
+    const float ObjectiveX = (Width - ObjectiveWidth) * 0.5f;
+    DrawRect(FLinearColor(0.008f, 0.011f, 0.012f, 0.88f), ObjectiveX, 94.0f, ObjectiveWidth, 28.0f);
+    DrawText(Simulation.GetObjectiveText(), DimBone, ObjectiveX + 14.0f, 101.0f,
+             GEngine->GetSmallFont(), 0.72f, false);
 
-    const float TacticalWidth = FMath::Min(238.0f, SafeWidth * 0.24f);
+    DrawTacticalMap(Simulation);
+
+    FVector2D GridMin;
+    FVector2D GridMax;
+    Controller.GetCommandButtonRect(0, GridMin, GridMax);
+    FVector2D LastMin;
+    FVector2D LastMax;
+    Controller.GetCommandButtonRect(8, LastMin, LastMax);
+    const float TacticalWidth = FMath::Clamp(Width * 0.235f, 152.0f, 238.0f);
     const float PanelX = 20.0f + TacticalWidth + 14.0f;
-    const float PanelWidth = FMath::Max(220.0f, SafeWidth - PanelX - 20.0f);
-    const float PanelHeight = 104.0f;
-    const float PanelY = SafeHeight - PanelHeight - 20.0f;
+    const float PanelY = Height - 158.0f;
+    const float PanelWidth = FMath::Max(118.0f, GridMin.X - PanelX - 14.0f);
+    const float PanelHeight = 138.0f;
     DrawRect(Ink, PanelX, PanelY, PanelWidth, PanelHeight);
     DrawRect(Selected > 0 ? Bronze : FLinearColor(0.18f, 0.19f, 0.18f), PanelX, PanelY, 4.0f, PanelHeight);
-    DrawText(Selected > 0 ? TEXT("WAR BAND READY") : TEXT("NO WAR BAND SELECTED"),
-             Selected > 0 ? Bone : DimBone, PanelX + 20.0f, PanelY + 14.0f,
-             GEngine->GetMediumFont(), 0.9f, false);
-    FString Status = Selected > 0
-                         ? FString::Printf(TEXT("%d CINDER COMPACT  //  %s"), Selected,
-                                           *Simulation.GetEntityOrderLabel(PrimaryEntityId))
-                         : TEXT("THE CROSSING AWAITS YOUR COMMAND");
+
+    const FString Header = Selected > 1
+                               ? FString::Printf(TEXT("WAR BAND  //  %d SELECTED"), Selected)
+                               : Selected == 1 ? Entity.Label.ToUpper() : TEXT("NO WAR BAND SELECTED");
+    DrawText(Header, Selected > 0 ? Bone : DimBone, PanelX + 16.0f, PanelY + 12.0f,
+             GEngine->GetSmallFont(), 0.86f, false);
+    FString Status = Selected > 0 ? Simulation.GetEntityOrderLabel(PrimaryEntityId)
+                                  : TEXT("THE CROSSING AWAITS YOUR COMMAND");
     if (Controller.GetActiveControlGroup() >= 0)
     {
         Status += FString::Printf(TEXT("  //  GROUP %d"), Controller.GetActiveControlGroup());
     }
-    DrawText(Status, DimBone, PanelX + 20.0f, PanelY + 42.0f, GEngine->GetSmallFont(), 0.82f, false);
+    DrawText(Status, DimBone, PanelX + 16.0f, PanelY + 34.0f, GEngine->GetSmallFont(), 0.69f, false);
 
-    const bool bBuildingSelected = PrimaryEntityId > 0 &&
-        (Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Command ||
-         Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Barracks ||
-         Simulation.GetEntityArchetype(PrimaryEntityId) == EAshenEntityArchetype::Turret);
-    DrawRect(Iron, PanelX + 12.0f, PanelY + 68.0f, PanelWidth - 24.0f, 25.0f);
-    DrawText(bBuildingSelected ? TEXT("Q  TRAIN I     E  TRAIN II     R  RALLY")
-                               : (bCompact ? TEXT("A  ADVANCE    S  STOP    H  HOLD    P  PATROL")
-                                           : TEXT("A  ADVANCE    S  STOP    H  HOLD    P  PATROL    SHIFT  QUEUE")),
-             Selected > 0 ? Bone : DimBone, PanelX + 22.0f, PanelY + 72.0f,
-             GEngine->GetSmallFont(), bCompact ? 0.68f : 0.78f, false);
+    if (Selected > 0)
+    {
+        const float BarX = PanelX + 16.0f;
+        const float BarWidth = FMath::Max(60.0f, PanelWidth - 32.0f);
+        const float Health = Entity.MaxHitPoints > 0 ? static_cast<float>(Entity.HitPoints) / Entity.MaxHitPoints : 0.0f;
+        DrawRect(FLinearColor(0.025f, 0.029f, 0.028f), BarX, PanelY + 58.0f, BarWidth, 8.0f);
+        DrawRect(ValidGreen, BarX, PanelY + 58.0f, BarWidth * Health, 8.0f);
+        DrawText(FString::Printf(TEXT("HP %d/%d"), Entity.HitPoints, Entity.MaxHitPoints), DimBone,
+                 BarX, PanelY + 70.0f, GEngine->GetSmallFont(), 0.62f, false);
+        if (Entity.bUnderConstruction)
+        {
+            DrawRect(Iron, BarX, PanelY + 92.0f, BarWidth, 7.0f);
+            DrawRect(Bronze, BarX, PanelY + 92.0f, BarWidth * Entity.ConstructionProgress, 7.0f);
+            DrawText(FString::Printf(TEXT("CONSTRUCTION  %d%%"),
+                                     FMath::RoundToInt(Entity.ConstructionProgress * 100.0f)),
+                     Bone, BarX, PanelY + 105.0f, GEngine->GetSmallFont(), 0.65f, false);
+        }
+        else if (Entity.QueueCount > 0)
+        {
+            DrawRect(Iron, BarX, PanelY + 92.0f, BarWidth, 7.0f);
+            DrawRect(Bronze, BarX, PanelY + 92.0f, BarWidth * Entity.QueueProgress, 7.0f);
+            DrawText(FString::Printf(TEXT("MUSTER QUEUE  %d"), Entity.QueueCount), Bone,
+                     BarX, PanelY + 105.0f, GEngine->GetSmallFont(), 0.65f, false);
+        }
+        else
+        {
+            DrawText(FString::Printf(TEXT("RESOLVE %d%%  //  %s"), Entity.Resolve, *StanceLabel(Entity.Stance)),
+                     DimBone, BarX, PanelY + 96.0f, GEngine->GetSmallFont(), 0.65f, false);
+        }
+    }
+
+    float MouseX = -1.0f;
+    float MouseY = -1.0f;
+    Controller.GetMousePosition(MouseX, MouseY);
+    for (int32 Slot = 0; Slot < 9; ++Slot)
+    {
+        FVector2D Min;
+        FVector2D Max;
+        if (!Controller.GetCommandButtonRect(Slot, Min, Max))
+        {
+            continue;
+        }
+        const FString Label = Controller.GetCommandButtonLabel(Slot);
+        const bool bEnabled = Controller.IsCommandButtonEnabled(Slot);
+        const bool bHovered = ContainsPoint(Min, Max, FVector2D(MouseX, MouseY));
+        DrawRect(bHovered && bEnabled ? FLinearColor(0.16f, 0.095f, 0.035f, 0.98f)
+                                      : bEnabled ? Iron : FLinearColor(0.025f, 0.029f, 0.029f, 0.82f),
+                 Min.X, Min.Y, Max.X - Min.X, Max.Y - Min.Y);
+        if (!Label.IsEmpty())
+        {
+            DrawRect(bEnabled ? Bronze : FLinearColor(0.19f, 0.19f, 0.17f), Min.X, Max.Y - 2.0f,
+                     Max.X - Min.X, 2.0f);
+            DrawText(Controller.GetCommandButtonHotkey(Slot), bEnabled ? Bronze : DimBone,
+                     Min.X + 6.0f, Min.Y + 3.0f, GEngine->GetSmallFont(), 0.58f, false);
+            DrawText(Label, bEnabled ? Bone : DimBone, Min.X + 6.0f, Min.Y + 19.0f,
+                     GEngine->GetSmallFont(), 0.61f, false);
+        }
+    }
+
+    const FString ResearchLine = !Player.ActiveResearch.IsEmpty()
+                                     ? FString::Printf(TEXT("ARCHIVE  //  %s  %d%%"), *Player.ActiveResearch.ToUpper(),
+                                                       FMath::RoundToInt(Player.ResearchProgress * 100.0f))
+                                     : FString::Printf(TEXT("TIER %d  //  RELICS %d  //  POWER %s"), Player.TechTier,
+                                                       Player.ControlledRelics,
+                                                       Player.PowerCooldownSeconds <= 0.0f
+                                                           ? TEXT("READY")
+                                                           : *FString::Printf(TEXT("%.0fs"), Player.PowerCooldownSeconds));
+    DrawText(ResearchLine, DimBone, GridMin.X, GridMin.Y - 19.0f,
+             GEngine->GetSmallFont(), 0.62f, false);
+
+    if (!Simulation.GetLastCommandMessage().IsEmpty())
+    {
+        const float MessageWidth = FMath::Min(520.0f, Width - 40.0f);
+        const float MessageX = (Width - MessageWidth) * 0.5f;
+        DrawRect(FLinearColor(0.008f, 0.011f, 0.012f, 0.90f), MessageX, PanelY - 33.0f, MessageWidth, 26.0f);
+        DrawText(Simulation.GetLastCommandMessage(), Bone, MessageX + 12.0f, PanelY - 27.0f,
+                 GEngine->GetSmallFont(), 0.68f, false);
+    }
 
     const FString CommandMode = Controller.GetCommandModeLabel();
     if (!CommandMode.IsEmpty())
     {
-        const float ModeWidth = FMath::Min(420.0f, SafeWidth - 40.0f);
-        const float ModeX = (SafeWidth - ModeWidth) * 0.5f;
+        const float ModeWidth = FMath::Min(520.0f, Width - 40.0f);
+        const float ModeX = (Width - ModeWidth) * 0.5f;
         DrawRect(FLinearColor(0.025f, 0.018f, 0.014f, 0.96f), ModeX, 102.0f, ModeWidth, 38.0f);
         DrawRect(Blood, ModeX, 102.0f, 4.0f, 38.0f);
         DrawText(CommandMode, Bone, ModeX + 18.0f, 113.0f, GEngine->GetSmallFont(), 0.88f, false);
     }
+}
+
+void AAshenHUD::DrawPlacementPreview(const AAshenPlayerController& Controller)
+{
+    FVector Location;
+    EAshenEntityArchetype Building = EAshenEntityArchetype::Barracks;
+    bool bValid = false;
+    FVector2D Screen;
+    if (!Controller.GetPlacementPreview(Location, Building, bValid) ||
+        !GetOwningPlayerController()->ProjectWorldLocationToScreen(Location, Screen))
+    {
+        return;
+    }
+
+    const FLinearColor LinearColor = bValid ? ValidGreen : Blood;
+    const FColor Color = LinearColor.ToFColor(true);
+    const float Radius = Building == EAshenEntityArchetype::Barracks ? 34.0f : 25.0f;
+    constexpr int32 Segments = 16;
+    FVector2D Previous(Screen.X + Radius, Screen.Y);
+    for (int32 Index = 1; Index <= Segments; ++Index)
+    {
+        const float Angle = 2.0f * PI * static_cast<float>(Index) / Segments;
+        const FVector2D Next(Screen.X + FMath::Cos(Angle) * Radius, Screen.Y + FMath::Sin(Angle) * Radius * 0.55f);
+        Draw2DLine(Previous.X, Previous.Y, Next.X, Next.Y, Color);
+        Previous = Next;
+    }
+    DrawText(bValid ? TEXT("SITE CLEAR") : TEXT("SITE BLOCKED"), LinearColor,
+             Screen.X - 36.0f, Screen.Y + Radius * 0.72f, GEngine->GetSmallFont(), 0.66f, false);
 }
 
 void AAshenHUD::DrawOrderRoute(const AAshenPlayerController& Controller,
@@ -291,17 +423,14 @@ void AAshenHUD::DrawCommandFeedback(const AAshenPlayerController& Controller)
     Draw2DLine(Screen.X - Radius, Screen.Y, Screen.X, Screen.Y - Radius, FeedbackColor);
 }
 
-void AAshenHUD::DrawTacticalMap()
+void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
 {
     const float Width = Canvas->SizeX;
     const float Height = Canvas->SizeY;
-    const bool bCompact = Height < 650.0f;
-    const float SafeWidth = bCompact ? Width * 0.78f : Width;
-    const float SafeHeight = bCompact ? Height * 0.78f : Height;
-    const float MapWidth = FMath::Min(238.0f, SafeWidth * 0.24f);
+    const float MapWidth = FMath::Clamp(Width * 0.235f, 152.0f, 238.0f);
     const float MapHeight = MapWidth * 0.5625f;
     const float MapX = 20.0f;
-    const float MapY = SafeHeight - MapHeight - 20.0f;
+    const float MapY = Height - MapHeight - 20.0f;
 
     DrawRect(FLinearColor(0.01f, 0.018f, 0.016f, 0.96f), MapX, MapY, MapWidth, MapHeight);
     DrawRect(FLinearColor(0.035f, 0.075f, 0.055f, 0.8f), MapX + 3.0f, MapY + 3.0f,
@@ -316,6 +445,10 @@ void AAshenHUD::DrawTacticalMap()
     for (TActorIterator<AAshenEntityActor> It(GetWorld()); It; ++It)
     {
         const AAshenEntityActor* Entity = *It;
+        if (Entity->GetOwnerIndex() != 0 && !Entity->IsFogVisible())
+        {
+            continue;
+        }
         const FVector Position = Entity->GetActorLocation();
         const float DotSize = (Entity->GetArchetype() == EAshenEntityArchetype::Command ||
                                Entity->GetArchetype() == EAshenEntityArchetype::Barracks)
@@ -324,6 +457,15 @@ void AAshenHUD::DrawTacticalMap()
         const float DotX = MapX + FMath::Clamp(Position.X / WorldWidth, 0.0f, 1.0f) * MapWidth - DotSize * 0.5f;
         const float DotY = MapY + FMath::Clamp(Position.Y / WorldHeight, 0.0f, 1.0f) * MapHeight - DotSize * 0.5f;
         DrawRect(Entity->GetOwnerIndex() == 0 ? Bronze : Blood, DotX, DotY, DotSize, DotSize);
+    }
+
+    for (const FAshenControlPointView& Point : Simulation.GetControlPointViews())
+    {
+        constexpr float DotSize = 6.0f;
+        const float DotX = MapX + FMath::Clamp(Point.WorldPosition.X / WorldWidth, 0.0f, 1.0f) * MapWidth - 3.0f;
+        const float DotY = MapY + FMath::Clamp(Point.WorldPosition.Y / WorldHeight, 0.0f, 1.0f) * MapHeight - 3.0f;
+        const FLinearColor PointColor = Point.OwnerIndex == 0 ? Bronze : Point.OwnerIndex == 1 ? Blood : Bone;
+        DrawRect(PointColor, DotX, DotY, DotSize, DotSize);
     }
 
     DrawRect(Bronze, MapX, MapY, MapWidth, 2.0f);

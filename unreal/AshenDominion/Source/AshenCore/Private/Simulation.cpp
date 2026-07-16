@@ -18,6 +18,13 @@ inline constexpr Tick kHarvestTicks = 22;
 inline constexpr std::int32_t kOrePerTrip = 10;
 inline constexpr std::int32_t kAttackMoveAcquisitionRange = 220'000;
 inline constexpr std::int32_t kSeparationPadding = 2'000;
+inline constexpr std::int32_t kTerrorRange = 250'000;
+inline constexpr std::int32_t kWardRange = 230'000;
+inline constexpr Tick kRuinTidePeriodTicks = 92 * kTicksPerSecond;
+inline constexpr std::int32_t kCaptureMaximum = 10'000;
+inline constexpr std::int32_t kControlIncomeThreshold = 2'000;
+inline constexpr std::int32_t kControlIncomePerTick = 155;
+inline constexpr std::int32_t kConstructionReach = 12'000;
 inline constexpr std::uint64_t kFnvOffset = 14'695'981'039'346'656'037ULL;
 inline constexpr std::uint64_t kFnvPrime = 1'099'511'628'211ULL;
 
@@ -55,11 +62,12 @@ inline constexpr std::uint64_t kFnvPrime = 1'099'511'628'211ULL;
   return squared_distance(entity.position, target) <= static_cast<std::uint64_t>(reach * reach);
 }
 
-[[nodiscard]] std::int32_t damage_against(const Entity& attacker, const Entity& target) noexcept {
+[[nodiscard]] std::int32_t damage_against(const Entity& attacker, const Entity& target,
+                                          const std::int32_t resolve_basis) noexcept {
   const auto bonus = attacker.has_damage_bonus && attacker.bonus_against == target.armor
                          ? attacker.bonus_damage
                          : 0;
-  return std::max(1, attacker.damage + bonus);
+  return std::max(1, (attacker.damage + bonus) * resolve_basis / 10'000);
 }
 
 [[nodiscard]] std::vector<EntityId> sorted_unique_ids(std::vector<EntityId> ids) {
@@ -136,9 +144,12 @@ void Simulation::reset(const SimulationConfig& config) {
   command_seen_.fill(false);
   entities_.clear();
   resources_.clear();
+  control_points_.clear();
   command_queue_.clear();
+  ruin_tide_ = 4;
   next_entity_id_ = 1;
   next_resource_id_ = 1;
+  next_control_point_id_ = 1;
   next_sequence_ = 1;
 
   if (!config.seed_starting_forces) {
@@ -152,8 +163,6 @@ void Simulation::reset(const SimulationConfig& config) {
   for (const auto& [player_id, base_x, direction] :
        std::array{std::tuple{PlayerId::One, left_x, 1}, std::tuple{PlayerId::Two, right_x, -1}}) {
     static_cast<void>(spawn_entity(player_id, EntityType::Command, {base_x, middle_y}));
-    static_cast<void>(spawn_entity(player_id, EntityType::Barracks,
-                                   {base_x + direction * world(95, 0).x, middle_y - world(90, 0).x}));
     for (std::int32_t index = 0; index < 3; ++index) {
       static_cast<void>(spawn_entity(player_id, EntityType::Worker,
                                      {base_x + direction * world(70 + index * 20, 0).x,
@@ -166,6 +175,8 @@ void Simulation::reset(const SimulationConfig& config) {
   static_cast<void>(add_resource({left_x + world(210, 0).x, middle_y - world(150, 0).x}, 1'200));
   static_cast<void>(add_resource({right_x - world(210, 0).x, middle_y + world(150, 0).x}, 1'200));
   static_cast<void>(add_resource({config.map_size.x / 2, middle_y}, 2'400, 32'000));
+  static_cast<void>(add_control_point({config.map_size.x / 2, world(340, 0).x}));
+  static_cast<void>(add_control_point({config.map_size.x / 2, world(740, 0).x}));
 }
 
 void Simulation::enqueue(Command command) {
@@ -201,9 +212,20 @@ void Simulation::step() {
       --entity.cooldown_ticks;
     }
   }
+  for (auto& player_state : players_) {
+    if (player_state.power_cooldown_ticks > 0) {
+      --player_state.power_cooldown_ticks;
+    }
+  }
 
+  update_ruin_tide();
+  update_research();
   update_production();
+  update_control_points();
+  update_resolve();
   update_orders();
+  update_auto_aggro();
+  update_defenses();
   remove_dead_entities();
   update_match_status();
   ++tick_;
@@ -215,7 +237,8 @@ void Simulation::run(const Tick ticks) {
   }
 }
 
-EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, const Vec2 position) {
+EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, const Vec2 position,
+                                  const bool under_construction) {
   const auto definition = entity_definition(player(owner).faction, type);
   Entity entity{};
   entity.id = EntityId{next_entity_id_++};
@@ -230,17 +253,32 @@ EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, c
   entity.attack_range = definition.attack_range;
   entity.damage = definition.damage;
   entity.attack_cooldown_ticks = definition.attack_cooldown_ticks;
+  entity.sight = definition.sight;
   entity.armor = definition.armor;
   entity.bonus_against = definition.bonus_against;
   entity.has_damage_bonus = definition.has_damage_bonus;
   entity.bonus_damage = definition.bonus_damage;
+  entity.terror = definition.terror;
+  entity.ward = definition.ward;
+  entity.resolve = 100;
   entity.supply_cost = definition.supply_cost;
   entity.supply_provided = definition.supply_provided;
+  entity.guard_position = position;
+  entity.under_construction = under_construction;
+  entity.construction_total_ticks = under_construction ? definition.build_ticks : 0;
+  entity.construction_ticks = 0;
   entity.rally_point = {position.x + (owner == PlayerId::One ? world(55, 0).x : -world(55, 0).x), position.y};
+
+  apply_research_bonuses(entity, false);
+  if (under_construction) {
+    entity.hit_points = std::max(1, entity.max_hit_points * 24 / 100);
+  }
 
   auto& owner_state = mutable_player(owner);
   owner_state.supply_used += definition.supply_cost;
-  owner_state.supply_cap += definition.supply_provided;
+  if (!under_construction) {
+    owner_state.supply_cap += definition.supply_provided;
+  }
   if (type == EntityType::Command) {
     command_seen_[player_index(owner)] = true;
   }
@@ -252,6 +290,12 @@ EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, c
 ResourceId Simulation::add_resource(const Vec2 position, const std::int32_t amount, const std::int32_t radius) {
   const auto id = ResourceId{next_resource_id_++};
   resources_.push_back(ResourceNode{id, position, radius, std::max(0, amount)});
+  return id;
+}
+
+ControlPointId Simulation::add_control_point(const Vec2 position, const std::int32_t radius) {
+  const auto id = ControlPointId{next_control_point_id_++};
+  control_points_.push_back(ControlPoint{id, position, radius});
   return id;
 }
 
@@ -287,6 +331,18 @@ ResourceNode* Simulation::find_resource_mutable(const ResourceId id) noexcept {
   return found == resources_.end() ? nullptr : &*found;
 }
 
+const ControlPoint* Simulation::find_control_point(const ControlPointId id) const noexcept {
+  const auto found = std::find_if(control_points_.begin(), control_points_.end(),
+                                  [id](const ControlPoint& point) { return point.id == id; });
+  return found == control_points_.end() ? nullptr : &*found;
+}
+
+ControlPoint* Simulation::find_control_point_mutable(const ControlPointId id) noexcept {
+  const auto found = std::find_if(control_points_.begin(), control_points_.end(),
+                                  [id](const ControlPoint& point) { return point.id == id; });
+  return found == control_points_.end() ? nullptr : &*found;
+}
+
 CommandResult Simulation::apply_command(const Command& command) {
   if (status_ != MatchStatus::Playing) {
     return failure(CommandError::InvalidTarget, "The match has already ended.");
@@ -311,6 +367,16 @@ CommandResult Simulation::apply_command(const Command& command) {
       return apply_patrol(command);
     case CommandType::SetRallyPoint:
       return apply_set_rally_point(command);
+    case CommandType::Build:
+      return apply_build(command);
+    case CommandType::Research:
+      return apply_research(command);
+    case CommandType::ActivatePower:
+      return apply_activate_power(command);
+    case CommandType::Retreat:
+      return apply_retreat(command);
+    case CommandType::SetStance:
+      return apply_set_stance(command);
   }
   return failure(CommandError::InvalidEntity, "Unsupported command.");
 }
@@ -396,18 +462,29 @@ CommandResult Simulation::apply_train(const Command& command) {
   if (!is_unit(command.train_type) || !can_train(producer->type, command.train_type)) {
     return failure(CommandError::InvalidUnitType, "That building cannot train the requested unit.");
   }
+  if (producer->under_construction) {
+    return failure(CommandError::UnderConstruction, "The production building is not complete.");
+  }
+  if (producer->production_queue.size() >= 5) {
+    return failure(CommandError::QueueFull, "The production queue is full.");
+  }
+  if (command.train_type == EntityType::Skirmisher && !has_research(command.player, ResearchId::TierTwo)) {
+    return failure(CommandError::PrerequisiteMissing, "Reach the Black-Iron Age before training ranged units.");
+  }
 
   const auto definition = entity_definition(player(command.player).faction, command.train_type);
   auto& owner = mutable_player(command.player);
-  if (owner.ore < definition.cost) {
+  const auto cost = production_cost(command.player, command.train_type);
+  if (owner.ore < cost) {
     return failure(CommandError::InsufficientOre, "Not enough ore.");
   }
   if (owner.supply_used + queued_supply(command.player) + definition.supply_cost > owner.supply_cap) {
     return failure(CommandError::SupplyBlocked, "Supply cap reached.");
   }
 
-  owner.ore -= definition.cost;
-  producer->production_queue.push_back({command.train_type, definition.build_ticks, definition.build_ticks});
+  const auto ticks = production_ticks(command.player, command.train_type);
+  owner.ore -= cost;
+  producer->production_queue.push_back({command.train_type, ticks, ticks});
   return success();
 }
 
@@ -459,11 +536,180 @@ CommandResult Simulation::apply_patrol(const Command& command) {
 
 CommandResult Simulation::apply_set_rally_point(const Command& command) {
   auto* producer = find_entity_mutable(command.producer);
-  if (producer == nullptr || producer->kind != EntityKind::Building || producer->owner != command.player) {
+  if (producer == nullptr || producer->kind != EntityKind::Building || producer->owner != command.player ||
+      producer->under_construction) {
     return failure(CommandError::InvalidProducer, "The rally-point building is invalid.");
   }
   producer->rally_point = nearest_navigable(command.target, entity_definition(player(command.player).faction,
                                                                                EntityType::Worker).radius);
+  return success();
+}
+
+CommandResult Simulation::apply_build(const Command& command) {
+  if (command.entities.size() != 1) {
+    return failure(CommandError::InvalidEntity, "Select exactly one worker to construct a building.");
+  }
+  auto* worker = find_entity_mutable(command.entities.front());
+  if (worker == nullptr || worker->owner != command.player || worker->type != EntityType::Worker) {
+    return failure(CommandError::InvalidOwner, "The construction worker is invalid.");
+  }
+  if (!is_building(command.building_type) || command.building_type == EntityType::Command) {
+    return failure(CommandError::InvalidUnitType, "That structure cannot be constructed in a match.");
+  }
+  if (!can_place_building(command.target, command.building_type)) {
+    return failure(CommandError::PlacementBlocked, "The construction site is blocked.");
+  }
+
+  const auto definition = entity_definition(player(command.player).faction, command.building_type);
+  auto& owner = mutable_player(command.player);
+  if (owner.ore < definition.cost) {
+    return failure(CommandError::InsufficientOre, "Not enough ore for that structure.");
+  }
+
+  owner.ore -= definition.cost;
+  const auto site = spawn_entity(command.player, command.building_type, command.target, true);
+  worker = find_entity_mutable(command.entities.front());
+  if (worker == nullptr) {
+    return failure(CommandError::InvalidEntity, "The construction worker disappeared.");
+  }
+  Order order{};
+  order.type = OrderType::Build;
+  order.target = command.target;
+  order.target_entity = site;
+  set_order(*worker, std::move(order), false);
+  return success();
+}
+
+CommandResult Simulation::apply_research(const Command& command) {
+  auto* producer = find_entity_mutable(command.producer);
+  const auto definition = research_definition(command.research);
+  auto& owner = mutable_player(command.player);
+  if (producer == nullptr || producer->owner != command.player || producer->type != definition.producer) {
+    return failure(CommandError::InvalidProducer, "The selected structure cannot research that doctrine.");
+  }
+  if (producer->under_construction) {
+    return failure(CommandError::UnderConstruction, "The research structure is not complete.");
+  }
+  if (definition.faction.has_value() && *definition.faction != owner.faction) {
+    return failure(CommandError::InvalidTarget, "That doctrine belongs to another faction.");
+  }
+  if (has_research(command.player, command.research) ||
+      std::ranges::any_of(owner.research_queue, [command](const ResearchTask& task) {
+        return task.id == command.research;
+      })) {
+    return failure(CommandError::AlreadyResearched, "That doctrine is already known or in progress.");
+  }
+  if (definition.prerequisite.has_value() && !has_research(command.player, *definition.prerequisite)) {
+    return failure(CommandError::PrerequisiteMissing, "A prerequisite doctrine is missing.");
+  }
+  if (!owner.research_queue.empty()) {
+    return failure(CommandError::ResearchBusy, "Another doctrine is already being researched.");
+  }
+  if (owner.ore < definition.cost) {
+    return failure(CommandError::InsufficientOre, "Not enough ore for research.");
+  }
+
+  owner.ore -= definition.cost;
+  owner.research_queue.push_back({command.research, definition.research_ticks, definition.research_ticks});
+  return success();
+}
+
+CommandResult Simulation::apply_activate_power(const Command& command) {
+  auto& owner = mutable_player(command.player);
+  const auto power = power_definition(owner.faction);
+  if (owner.power_cooldown_ticks > 0) {
+    return failure(CommandError::PowerCooldown, "The faction doctrine is still recovering.");
+  }
+  if (owner.ore < power.cost) {
+    return failure(CommandError::InsufficientOre, "Not enough ore for the faction doctrine.");
+  }
+
+  if (owner.faction == FactionId::Ascendancy) {
+    const auto* command_structure = nearest_command(command.player, config_.map_size);
+    if (command_structure == nullptr || command_structure->under_construction) {
+      return failure(CommandError::InvalidProducer, "Manifest Absolution requires a House of Quiet.");
+    }
+    const auto unit = entity_definition(owner.faction, EntityType::Vanguard);
+    if (owner.supply_used + queued_supply(command.player) + unit.supply_cost > owner.supply_cap) {
+      return failure(CommandError::SupplyBlocked, "Army capacity reached.");
+    }
+    const auto command_position = command_structure->position;
+    const auto direction = command.player == PlayerId::One ? 1 : -1;
+    const auto spawn = nearest_navigable(
+        {command_position.x + direction * (command_structure->radius + unit.radius + 8'000), command_position.y},
+        unit.radius);
+    const auto manifested = spawn_entity(command.player, EntityType::Vanguard, spawn);
+    if (auto* entity = find_entity_mutable(manifested)) {
+      Order order{};
+      order.type = OrderType::AttackMove;
+      order.target = nearest_navigable({spawn.x + direction * 110'000, spawn.y}, entity->radius);
+      set_order(*entity, std::move(order), false);
+    }
+  } else if (owner.faction == FactionId::Compact) {
+    for (auto& entity : entities_) {
+      if (entity.owner == command.player && entity.alive() && entity.kind == EntityKind::Unit) {
+        entity.resolve = 100;
+        entity.hit_points = std::min(entity.max_hit_points,
+                                     entity.hit_points + std::max(1, entity.max_hit_points * 12 / 100));
+      }
+    }
+  } else {
+    for (auto& entity : entities_) {
+      if (entity.owner != command.player || !entity.alive()) {
+        continue;
+      }
+      if (entity.kind == EntityKind::Building) {
+        entity.hit_points = std::min(entity.max_hit_points,
+                                     entity.hit_points + std::max(1, entity.max_hit_points * 24 / 100));
+      } else {
+        entity.resolve = std::min(100, entity.resolve + 18);
+      }
+    }
+  }
+
+  owner.ore -= power.cost;
+  owner.power_cooldown_ticks = power.cooldown_ticks;
+  return success();
+}
+
+CommandResult Simulation::apply_retreat(const Command& command) {
+  if (const auto validation = validate_units(*this, command); !validation) {
+    return validation;
+  }
+  const auto* command_structure = nearest_command(command.player, find_entity(command.entities.front())->position);
+  if (command_structure == nullptr) {
+    return failure(CommandError::InvalidTarget, "No retreat route is available.");
+  }
+  const auto ids = sorted_unique_ids(command.entities);
+  const auto targets = formation_targets(ids, command_structure->position);
+  for (std::size_t index = 0; index < ids.size(); ++index) {
+    if (auto* entity = find_entity_mutable(ids[index])) {
+      entity->resolve = std::min(100, entity->resolve + 8);
+      entity->stance = UnitStance::Defensive;
+      Order order{};
+      order.type = OrderType::Move;
+      order.target = targets[index];
+      set_order(*entity, std::move(order), false);
+    }
+  }
+  return success();
+}
+
+CommandResult Simulation::apply_set_stance(const Command& command) {
+  if (const auto validation = validate_units(*this, command); !validation) {
+    return validation;
+  }
+  for (const auto id : sorted_unique_ids(command.entities)) {
+    if (auto* entity = find_entity_mutable(id)) {
+      entity->stance = command.stance;
+      entity->guard_position = entity->position;
+      if (command.stance == UnitStance::Hold) {
+        Order order{};
+        order.type = OrderType::Hold;
+        set_order(*entity, std::move(order), false);
+      }
+    }
+  }
   return success();
 }
 
@@ -472,6 +718,42 @@ void Simulation::apply_due_commands() {
     const auto command = std::move(command_queue_.front());
     command_queue_.erase(command_queue_.begin());
     static_cast<void>(apply_command(command));
+  }
+}
+
+void Simulation::update_ruin_tide() {
+  const auto phase = tick_ % kRuinTidePeriodTicks;
+  const auto half_period = kRuinTidePeriodTicks / 2;
+  const auto rising = phase <= half_period ? phase : kRuinTidePeriodTicks - phase;
+  const auto normalized = static_cast<std::int64_t>(rising) * 10'000 / static_cast<std::int64_t>(half_period);
+  const auto smooth = normalized * normalized * (30'000 - 2 * normalized) / 100'000'000;
+  ruin_tide_ = 4 + static_cast<std::int32_t>(96 * smooth / 10'000);
+}
+
+void Simulation::update_research() {
+  for (auto& player_state : players_) {
+    if (player_state.research_queue.empty()) {
+      continue;
+    }
+    auto& task = player_state.research_queue.front();
+    if (task.remaining_ticks > 0) {
+      --task.remaining_ticks;
+    }
+    if (task.remaining_ticks > 0) {
+      continue;
+    }
+
+    const auto completed = task.id;
+    player_state.research_queue.erase(player_state.research_queue.begin());
+    player_state.researched[research_index(completed)] = true;
+    if (completed == ResearchId::TierTwo) {
+      player_state.tech_tier = 2;
+    }
+    for (auto& entity : entities_) {
+      if (entity.owner == player_state.id && entity.alive()) {
+        apply_research_bonuses(entity, true);
+      }
+    }
   }
 }
 
@@ -485,7 +767,7 @@ void Simulation::update_production() {
   std::vector<SpawnRequest> spawns;
 
   for (auto& building : entities_) {
-    if (!building.alive() || building.production_queue.empty()) {
+    if (!building.alive() || building.under_construction || building.production_queue.empty()) {
       continue;
     }
     auto& task = building.production_queue.front();
@@ -511,6 +793,101 @@ void Simulation::update_production() {
       order.target = nearest_navigable(spawn.rally_point, entity->radius);
       set_order(*entity, std::move(order), false);
     }
+  }
+}
+
+void Simulation::update_control_points() {
+  for (auto& point : control_points_) {
+    std::array<std::int32_t, 2> presence{};
+    for (const auto& entity : entities_) {
+      if (!entity.alive() || entity.kind != EntityKind::Unit ||
+          !within_reach(entity, point.position, point.radius)) {
+        continue;
+      }
+      presence[player_index(entity.owner)] += entity.type == EntityType::Worker ? 1 : 2;
+    }
+
+    if (presence[0] > 0 && presence[1] == 0) {
+      const auto delta = (1'300 + presence[0] * 150) / kTicksPerSecond;
+      point.influence = std::min(kCaptureMaximum, point.influence + delta);
+    } else if (presence[1] > 0 && presence[0] == 0) {
+      const auto delta = (1'300 + presence[1] * 150) / kTicksPerSecond;
+      point.influence = std::max(-kCaptureMaximum, point.influence - delta);
+    }
+
+    if (point.owner == PlayerId::One && point.influence <= 0) {
+      point.owner.reset();
+    } else if (point.owner == PlayerId::Two && point.influence >= 0) {
+      point.owner.reset();
+    }
+    if (point.influence >= kCaptureMaximum) {
+      point.owner = PlayerId::One;
+    } else if (point.influence <= -kCaptureMaximum) {
+      point.owner = PlayerId::Two;
+    }
+
+    if (point.owner.has_value()) {
+      point.income_progress += kControlIncomePerTick;
+      while (point.income_progress >= kControlIncomeThreshold) {
+        ++mutable_player(*point.owner).ore;
+        point.income_progress -= kControlIncomeThreshold;
+      }
+    } else {
+      point.income_progress = 0;
+    }
+  }
+}
+
+void Simulation::update_resolve() {
+  std::array<std::int32_t, 2> resolve_totals{};
+  std::array<std::int32_t, 2> resolve_samples{};
+
+  for (auto& entity : entities_) {
+    if (!entity.alive()) {
+      continue;
+    }
+    if (entity.kind == EntityKind::Building) {
+      entity.resolve = 100;
+      continue;
+    }
+
+    auto enemy_terror = 0;
+    auto friendly_ward = 0;
+    for (const auto& other : entities_) {
+      if (!other.alive()) {
+        continue;
+      }
+      const auto gap = static_cast<std::int64_t>(integer_sqrt(squared_distance(entity.position, other.position)));
+      if (other.owner != entity.owner && other.terror > 0 && gap <= kTerrorRange) {
+        enemy_terror += static_cast<std::int32_t>(other.terror * (kTerrorRange - gap) / kTerrorRange);
+      }
+      if (other.owner == entity.owner && other.ward > 0 && gap <= kWardRange) {
+        friendly_ward += static_cast<std::int32_t>(other.ward * (kWardRange - gap) / kWardRange);
+      }
+    }
+
+    auto relic_ward = 0;
+    for (const auto& point : control_points_) {
+      if (point.owner == entity.owner) {
+        const auto reach = static_cast<std::int64_t>(point.radius) + 130'000;
+        if (squared_distance(entity.position, point.position) <= static_cast<std::uint64_t>(reach * reach)) {
+          relic_ward = 8;
+          break;
+        }
+      }
+    }
+
+    const auto ambient = ruin_tide_ * 18 / 100;
+    const auto race_drift = faction_definition(player(entity.owner).faction).resolve_drift;
+    const auto dread = ambient + enemy_terror - friendly_ward - relic_ward - race_drift;
+    entity.resolve = std::clamp(100 - dread, 38, 100);
+    resolve_totals[player_index(entity.owner)] += entity.resolve;
+    ++resolve_samples[player_index(entity.owner)];
+  }
+
+  for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
+    const auto index = player_index(player_id);
+    mutable_player(player_id).resolve = resolve_samples[index] == 0 ? 100 : resolve_totals[index] / resolve_samples[index];
   }
 }
 
@@ -542,6 +919,9 @@ void Simulation::update_orders() {
       case OrderType::Gather:
         update_gather(entity);
         break;
+      case OrderType::Build:
+        update_build(entity);
+        break;
       case OrderType::Patrol:
         update_patrol(entity);
         break;
@@ -552,6 +932,47 @@ void Simulation::update_orders() {
   }
 
   resolve_unit_separation();
+}
+
+void Simulation::update_defenses() {
+  for (auto& building : entities_) {
+    if (!building.alive() || building.kind != EntityKind::Building || building.under_construction ||
+        building.damage <= 0 || building.cooldown_ticks > 0) {
+      continue;
+    }
+    const auto target_id = nearest_enemy(building.owner, building.position,
+                                         building.radius + building.attack_range);
+    auto* target = find_entity_mutable(target_id);
+    if (target == nullptr ||
+        !within_reach(building, target->position, target->radius, building.attack_range)) {
+      continue;
+    }
+    target->hit_points -= damage_against(building, *target, 10'000);
+    building.cooldown_ticks = building.attack_cooldown_ticks;
+  }
+}
+
+void Simulation::update_auto_aggro() {
+  for (auto& entity : entities_) {
+    if (!entity.alive() || entity.kind != EntityKind::Unit || entity.damage <= 0 ||
+        entity.order.type != OrderType::Idle) {
+      continue;
+    }
+    auto acquisition_range = entity.sight;
+    if (entity.stance == UnitStance::Defensive) {
+      acquisition_range = entity.sight * 72 / 100;
+    } else if (entity.stance == UnitStance::Hold) {
+      acquisition_range = entity.radius + entity.attack_range + 42'000;
+    }
+    const auto target = nearest_enemy(entity.owner, entity.position, acquisition_range);
+    if (!target) {
+      continue;
+    }
+    Order order{};
+    order.type = entity.stance == UnitStance::Hold ? OrderType::Hold : OrderType::Attack;
+    order.target_entity = target;
+    set_order(entity, std::move(order), false);
+  }
 }
 
 void Simulation::update_gather(Entity& entity) {
@@ -600,6 +1021,39 @@ void Simulation::update_gather(Entity& entity) {
       break;
     }
   }
+}
+
+void Simulation::update_build(Entity& entity) {
+  auto* building = find_entity_mutable(entity.order.target_entity);
+  if (building == nullptr || building->owner != entity.owner) {
+    complete_order(entity);
+    return;
+  }
+  if (!building->under_construction) {
+    complete_order(entity);
+    return;
+  }
+  if (!within_reach(entity, building->position, building->radius, kConstructionReach)) {
+    static_cast<void>(move_along_route(entity, building->position));
+    return;
+  }
+
+  clear_route(entity.order);
+  building->construction_ticks = std::min(building->construction_total_ticks,
+                                          building->construction_ticks + 1);
+  const auto total = std::max<Tick>(1, building->construction_total_ticks);
+  const auto progress_basis = static_cast<std::int32_t>(building->construction_ticks * 10'000 / total);
+  const auto target_health = building->max_hit_points * (2'400 + progress_basis * 76 / 100) / 10'000;
+  building->hit_points = std::max(building->hit_points, std::max(1, target_health));
+  if (building->construction_ticks < building->construction_total_ticks) {
+    return;
+  }
+
+  building->under_construction = false;
+  building->construction_ticks = building->construction_total_ticks;
+  building->hit_points = building->max_hit_points;
+  mutable_player(building->owner).supply_cap += building->supply_provided;
+  complete_order(entity);
 }
 
 void Simulation::update_attack_move(Entity& entity) {
@@ -729,7 +1183,7 @@ bool Simulation::attack_target(Entity& entity, const bool chase) {
 
   clear_route(entity.order);
   if (entity.cooldown_ticks == 0) {
-    target->hit_points -= damage_against(entity, *target);
+    target->hit_points -= damage_against(entity, *target, resolve_multiplier_basis(entity));
     entity.cooldown_ticks = entity.attack_cooldown_ticks;
   }
   return true;
@@ -1089,7 +1543,9 @@ void Simulation::remove_dead_entities() {
     }
     auto& owner = mutable_player(entity.owner);
     owner.supply_used = std::max(0, owner.supply_used - entity.supply_cost);
-    owner.supply_cap = std::max(0, owner.supply_cap - entity.supply_provided);
+    if (!entity.under_construction) {
+      owner.supply_cap = std::max(0, owner.supply_cap - entity.supply_provided);
+    }
   }
   std::erase_if(entities_, [](const Entity& entity) { return !entity.alive(); });
 }
@@ -1115,13 +1571,14 @@ void Simulation::move_toward(Entity& entity, const Vec2 target) const noexcept {
   const auto dx = static_cast<std::int64_t>(target.x) - entity.position.x;
   const auto dy = static_cast<std::int64_t>(target.y) - entity.position.y;
   const auto distance = integer_sqrt(static_cast<std::uint64_t>(dx * dx + dy * dy));
-  if (distance == 0 || distance <= static_cast<std::uint64_t>(entity.speed_per_tick)) {
+  const auto speed = std::max(1, entity.speed_per_tick * resolve_multiplier_basis(entity) / 10'000);
+  if (distance == 0 || distance <= static_cast<std::uint64_t>(speed)) {
     entity.position = target;
     return;
   }
 
-  entity.position.x += static_cast<std::int32_t>(dx * entity.speed_per_tick / static_cast<std::int64_t>(distance));
-  entity.position.y += static_cast<std::int32_t>(dy * entity.speed_per_tick / static_cast<std::int64_t>(distance));
+  entity.position.x += static_cast<std::int32_t>(dx * speed / static_cast<std::int64_t>(distance));
+  entity.position.y += static_cast<std::int32_t>(dy * speed / static_cast<std::int64_t>(distance));
   entity.position.x = std::clamp(entity.position.x, 0, config_.map_size.x);
   entity.position.y = std::clamp(entity.position.y, 0, config_.map_size.y);
 }
@@ -1156,6 +1613,128 @@ std::int32_t Simulation::queued_supply(const PlayerId owner) const noexcept {
   return total;
 }
 
+bool Simulation::is_position_visible_to(const Vec2 position, const PlayerId owner,
+                                        const std::int32_t buffer) const noexcept {
+  for (const auto& entity : entities_) {
+    if (!entity.alive() || entity.owner != owner || entity.under_construction) {
+      continue;
+    }
+    const auto reach = static_cast<std::int64_t>(entity.sight) + buffer;
+    if (squared_distance(entity.position, position) <= static_cast<std::uint64_t>(reach * reach)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Simulation::is_entity_visible_to(const Entity& entity, const PlayerId owner) const noexcept {
+  return entity.owner == owner || is_position_visible_to(entity.position, owner, entity.radius);
+}
+
+bool Simulation::can_place_building(const Vec2 position, const EntityType type) const noexcept {
+  if (!is_building(type) || type == EntityType::Command) {
+    return false;
+  }
+  const auto radius = entity_definition(FactionId::Compact, type).radius;
+  if (!is_navigable(position, radius + 12'000)) {
+    return false;
+  }
+  for (const auto& entity : entities_) {
+    const auto reach = static_cast<std::int64_t>(radius) + entity.radius + 18'000;
+    if (entity.alive() && squared_distance(position, entity.position) < static_cast<std::uint64_t>(reach * reach)) {
+      return false;
+    }
+  }
+  for (const auto& resource : resources_) {
+    const auto reach = static_cast<std::int64_t>(radius) + resource.radius + 22'000;
+    if (resource.amount > 0 && squared_distance(position, resource.position) < static_cast<std::uint64_t>(reach * reach)) {
+      return false;
+    }
+  }
+  for (const auto& point : control_points_) {
+    const auto reach = static_cast<std::int64_t>(radius) + point.radius + 24'000;
+    if (squared_distance(position, point.position) < static_cast<std::uint64_t>(reach * reach)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Simulation::has_research(const PlayerId owner, const ResearchId research) const noexcept {
+  return player(owner).researched[research_index(research)];
+}
+
+std::int32_t Simulation::production_cost(const PlayerId owner, const EntityType type) const noexcept {
+  const auto definition = entity_definition(player(owner).faction, type);
+  const auto shaped = player(owner).faction == FactionId::Ascendancy && type == EntityType::Vanguard &&
+                      has_research(owner, ResearchId::PitBroods);
+  return shaped ? (definition.cost * 82 + 50) / 100 : definition.cost;
+}
+
+Tick Simulation::production_ticks(const PlayerId owner, const EntityType type) const noexcept {
+  const auto definition = entity_definition(player(owner).faction, type);
+  const auto shaped = player(owner).faction == FactionId::Ascendancy && type == EntityType::Vanguard &&
+                      has_research(owner, ResearchId::PitBroods);
+  return shaped ? (definition.build_ticks * 82 + 50) / 100 : definition.build_ticks;
+}
+
+std::int32_t Simulation::resolve_multiplier_basis(const Entity& entity) const noexcept {
+  if (entity.kind == EntityKind::Building) {
+    return 10'000;
+  }
+  return std::clamp(6'800 + entity.resolve * 32, 6'800, 10'000);
+}
+
+void Simulation::apply_research_bonuses(Entity& entity, const bool preserve_health) {
+  const auto& owner = player(entity.owner);
+  const auto definition = entity_definition(owner.faction, entity.type);
+  const auto health_basis = preserve_health && entity.max_hit_points > 0
+                                ? static_cast<std::int64_t>(entity.hit_points) * 10'000 / entity.max_hit_points
+                                : 10'000;
+
+  auto maximum_health = definition.hit_points;
+  auto speed = definition.speed_per_tick;
+  auto damage = definition.damage;
+  auto bonus_damage = definition.bonus_damage;
+  auto terror = definition.terror;
+  auto ward = definition.ward;
+
+  if (has_research(entity.owner, ResearchId::TemperedOaths) && entity.type == EntityType::Vanguard) {
+    maximum_health = maximum_health * 115 / 100;
+    damage = damage * 115 / 100;
+  }
+  if (has_research(entity.owner, ResearchId::Wardcraft)) {
+    ward = ward * 135 / 100;
+  }
+  if (has_research(entity.owner, ResearchId::ChorusOfKnives) && entity.kind == EntityKind::Unit &&
+      entity.type != EntityType::Worker) {
+    speed = speed * 110 / 100;
+    terror += 4;
+  }
+  if (has_research(entity.owner, ResearchId::VaultPlate) &&
+      (entity.kind == EntityKind::Building || entity.type != EntityType::Worker)) {
+    maximum_health = maximum_health * 120 / 100;
+  }
+  if (has_research(entity.owner, ResearchId::SiegeLiturgy) && entity.type == EntityType::Vanguard) {
+    bonus_damage += 8;
+  }
+
+  entity.max_hit_points = maximum_health;
+  entity.hit_points = std::clamp(static_cast<std::int32_t>(maximum_health * health_basis / 10'000), 1,
+                                 maximum_health);
+  entity.speed_per_tick = speed;
+  entity.attack_range = definition.attack_range;
+  entity.damage = damage;
+  entity.attack_cooldown_ticks = definition.attack_cooldown_ticks;
+  entity.sight = definition.sight;
+  entity.armor = definition.armor;
+  entity.bonus_against = definition.bonus_against;
+  entity.has_damage_bonus = definition.has_damage_bonus;
+  entity.bonus_damage = bonus_damage;
+  entity.terror = terror;
+  entity.ward = ward;
+}
+
 std::uint64_t Simulation::state_hash() const noexcept {
   auto hash = kFnvOffset;
   hash_integral(hash, tick_);
@@ -1173,7 +1752,9 @@ std::uint64_t Simulation::state_hash() const noexcept {
   hash_integral(hash, winner_.has_value() ? static_cast<std::uint8_t>(*winner_) + 1U : 0U);
   hash_integral(hash, next_entity_id_);
   hash_integral(hash, next_resource_id_);
+  hash_integral(hash, next_control_point_id_);
   hash_integral(hash, next_sequence_);
+  hash_integral(hash, ruin_tide_);
   for (const auto seen : command_seen_) {
     hash_integral(hash, seen);
   }
@@ -1184,6 +1765,17 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, player_state.ore);
     hash_integral(hash, player_state.supply_used);
     hash_integral(hash, player_state.supply_cap);
+    hash_integral(hash, player_state.resolve);
+    hash_integral(hash, player_state.power_cooldown_ticks);
+    hash_integral(hash, player_state.tech_tier);
+    for (const auto researched : player_state.researched) {
+      hash_integral(hash, researched);
+    }
+    for (const auto& task : player_state.research_queue) {
+      hash_integral(hash, static_cast<std::uint8_t>(task.id));
+      hash_integral(hash, task.remaining_ticks);
+      hash_integral(hash, task.total_ticks);
+    }
   }
 
   for (const auto& entity : entities_) {
@@ -1200,10 +1792,14 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, entity.damage);
     hash_integral(hash, entity.attack_cooldown_ticks);
     hash_integral(hash, entity.cooldown_ticks);
+    hash_integral(hash, entity.sight);
     hash_integral(hash, static_cast<std::uint8_t>(entity.armor));
     hash_integral(hash, static_cast<std::uint8_t>(entity.bonus_against));
     hash_integral(hash, entity.has_damage_bonus);
     hash_integral(hash, entity.bonus_damage);
+    hash_integral(hash, entity.terror);
+    hash_integral(hash, entity.ward);
+    hash_integral(hash, entity.resolve);
     hash_integral(hash, entity.supply_cost);
     hash_integral(hash, entity.supply_provided);
     hash_integral(hash, entity.carrying);
@@ -1218,6 +1814,11 @@ std::uint64_t Simulation::state_hash() const noexcept {
       hash_integral(hash, task.remaining_ticks);
       hash_integral(hash, task.total_ticks);
     }
+    hash_integral(hash, static_cast<std::uint8_t>(entity.stance));
+    hash_vec(hash, entity.guard_position);
+    hash_integral(hash, entity.under_construction);
+    hash_integral(hash, entity.construction_ticks);
+    hash_integral(hash, entity.construction_total_ticks);
   }
 
   for (const auto& resource : resources_) {
@@ -1225,6 +1826,15 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_vec(hash, resource.position);
     hash_integral(hash, resource.radius);
     hash_integral(hash, resource.amount);
+  }
+
+  for (const auto& point : control_points_) {
+    hash_integral(hash, point.id.value);
+    hash_vec(hash, point.position);
+    hash_integral(hash, point.radius);
+    hash_integral(hash, point.owner.has_value() ? static_cast<std::uint8_t>(*point.owner) + 1U : 0U);
+    hash_integral(hash, point.influence);
+    hash_integral(hash, point.income_progress);
   }
 
   for (const auto& command : command_queue_) {
@@ -1240,6 +1850,9 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, command.resource.value);
     hash_integral(hash, command.producer.value);
     hash_integral(hash, static_cast<std::uint8_t>(command.train_type));
+    hash_integral(hash, static_cast<std::uint8_t>(command.building_type));
+    hash_integral(hash, static_cast<std::uint8_t>(command.research));
+    hash_integral(hash, static_cast<std::uint8_t>(command.stance));
     hash_integral(hash, command.queue);
   }
   return hash;

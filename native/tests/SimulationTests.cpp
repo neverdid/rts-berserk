@@ -385,6 +385,175 @@ void rally_point_controls_completed_production() {
   CHECK(arrived != simulation.entities().end() && arrived->position == rally);
 }
 
+void worker_construction_is_blocked_costed_and_completed() {
+  auto simulation = sandbox();
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
+  const auto worker = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(155, 100));
+  const auto opening_ore = simulation.player(PlayerId::One).ore;
+  const auto opening_cap = simulation.player(PlayerId::One).supply_cap;
+
+  CHECK(!simulation.execute_now(Command{.player = PlayerId::One,
+                                        .type = CommandType::Build,
+                                        .entities = {worker},
+                                        .target = world(115, 100),
+                                        .building_type = EntityType::Barracks})
+             .ok);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Build,
+                                       .entities = {worker},
+                                       .target = world(310, 180),
+                                       .building_type = EntityType::Barracks})
+            .ok);
+  CHECK(simulation.player(PlayerId::One).ore ==
+        opening_ore - entity_definition(FactionId::Compact, EntityType::Barracks).cost);
+  const auto site = std::find_if(simulation.entities().begin(), simulation.entities().end(),
+                                 [](const Entity& entity) { return entity.type == EntityType::Barracks; });
+  CHECK(site != simulation.entities().end());
+  CHECK(site != simulation.entities().end() && site->under_construction);
+  CHECK(simulation.player(PlayerId::One).supply_cap == opening_cap);
+
+  simulation.run(380);
+  const auto completed = std::find_if(simulation.entities().begin(), simulation.entities().end(),
+                                      [](const Entity& entity) { return entity.type == EntityType::Barracks; });
+  CHECK(completed != simulation.entities().end() && !completed->under_construction);
+  CHECK(completed != simulation.entities().end() && completed->hit_points == completed->max_hit_points);
+  CHECK(simulation.player(PlayerId::One).supply_cap == opening_cap + completed->supply_provided);
+}
+
+void research_unlocks_units_and_refreshes_existing_troops() {
+  auto simulation = sandbox();
+  const auto command = simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100));
+  const auto barracks = simulation.spawn_entity(PlayerId::One, EntityType::Barracks, world(220, 100));
+  const auto soldier = simulation.spawn_entity(PlayerId::One, EntityType::Vanguard, world(160, 180));
+  const auto worker = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(150, 100));
+  const auto seam = simulation.add_resource(world(185, 100), 500);
+
+  CHECK(!simulation.execute_now(Command{.player = PlayerId::One,
+                                        .type = CommandType::Train,
+                                        .producer = barracks,
+                                        .train_type = EntityType::Skirmisher})
+             .ok);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Research,
+                                       .producer = command,
+                                       .research = ResearchId::TierTwo})
+            .ok);
+  CHECK(!simulation.execute_now(Command{.player = PlayerId::One,
+                                        .type = CommandType::Research,
+                                        .producer = command,
+                                        .research = ResearchId::TierTwo})
+             .ok);
+  simulation.run(research_definition(ResearchId::TierTwo).research_ticks);
+  CHECK(simulation.player(PlayerId::One).tech_tier == 2);
+  CHECK(simulation.has_research(PlayerId::One, ResearchId::TierTwo));
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Train,
+                                       .producer = barracks,
+                                       .train_type = EntityType::Skirmisher})
+            .ok);
+
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Gather,
+                                       .entities = {worker},
+                                       .resource = seam})
+            .ok);
+  simulation.run(500);
+  const auto before = simulation.find_entity(soldier);
+  CHECK(before != nullptr);
+  const auto health_before = before == nullptr ? 0 : before->max_hit_points;
+  const auto damage_before = before == nullptr ? 0 : before->damage;
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Research,
+                                       .producer = barracks,
+                                       .research = ResearchId::TemperedOaths})
+            .ok);
+  simulation.run(research_definition(ResearchId::TemperedOaths).research_ticks);
+  const auto upgraded = simulation.find_entity(soldier);
+  CHECK(upgraded != nullptr && upgraded->max_hit_points > health_before);
+  CHECK(upgraded != nullptr && upgraded->damage > damage_before);
+}
+
+void faction_powers_are_distinct_and_obey_cooldowns() {
+  auto compact = sandbox(FactionId::Compact, FactionId::Ascendancy);
+  static_cast<void>(compact.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
+  const auto compact_unit = compact.spawn_entity(PlayerId::One, EntityType::Vanguard, world(170, 100));
+  const auto compact_enemy = compact.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(220, 100));
+  CHECK(compact.execute_now(Command{.player = PlayerId::Two,
+                                    .type = CommandType::Attack,
+                                    .entities = {compact_enemy},
+                                    .target_entity = compact_unit})
+            .ok);
+  compact.step();
+  const auto damaged_health = compact.find_entity(compact_unit)->hit_points;
+  CHECK(compact.execute_now(Command{.player = PlayerId::One, .type = CommandType::ActivatePower}).ok);
+  CHECK(compact.find_entity(compact_unit)->hit_points > damaged_health);
+  CHECK(!compact.execute_now(Command{.player = PlayerId::One, .type = CommandType::ActivatePower}).ok);
+
+  auto ascendancy = sandbox(FactionId::Ascendancy, FactionId::Compact);
+  static_cast<void>(ascendancy.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
+  const auto before_count = std::ranges::count_if(ascendancy.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::One && entity.type == EntityType::Vanguard;
+  });
+  CHECK(ascendancy.execute_now(Command{.player = PlayerId::One, .type = CommandType::ActivatePower}).ok);
+  CHECK(std::ranges::count_if(ascendancy.entities(), [](const Entity& entity) {
+          return entity.owner == PlayerId::One && entity.type == EntityType::Vanguard;
+        }) == before_count + 1);
+
+  auto concord = sandbox(FactionId::Concord, FactionId::Ascendancy);
+  const auto concord_command = concord.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100));
+  const auto concord_enemy = concord.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(170, 100));
+  CHECK(concord.execute_now(Command{.player = PlayerId::Two,
+                                    .type = CommandType::Attack,
+                                    .entities = {concord_enemy},
+                                    .target_entity = concord_command})
+            .ok);
+  concord.step();
+  const auto damaged_command = concord.find_entity(concord_command)->hit_points;
+  CHECK(concord.execute_now(Command{.player = PlayerId::One, .type = CommandType::ActivatePower}).ok);
+  CHECK(concord.find_entity(concord_command)->hit_points > damaged_command);
+}
+
+void control_points_capture_and_generate_income() {
+  auto simulation = sandbox();
+  const auto point = simulation.add_control_point(world(320, 260), 90'000);
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Vanguard, world(320, 260)));
+  const auto opening_ore = simulation.player(PlayerId::One).ore;
+  simulation.run(170);
+  const auto* captured = simulation.find_control_point(point);
+  CHECK(captured != nullptr && captured->owner == PlayerId::One);
+  CHECK(captured != nullptr && captured->influence == 10'000);
+  CHECK(simulation.player(PlayerId::One).ore > opening_ore);
+
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(320, 260)));
+  const auto frozen_influence = simulation.find_control_point(point)->influence;
+  simulation.run(80);
+  CHECK(simulation.find_control_point(point)->influence == frozen_influence);
+}
+
+void tide_resolve_and_visibility_are_authoritative() {
+  auto simulation = sandbox(FactionId::Compact, FactionId::Ascendancy);
+  const auto scout = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(100, 100));
+  const auto soldier = simulation.spawn_entity(PlayerId::One, EntityType::Vanguard, world(500, 500));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command, world(535, 500)));
+  const auto distant_enemy = simulation.spawn_entity(PlayerId::Two, EntityType::Command, world(1'000, 700));
+
+  CHECK(!simulation.is_entity_visible_to(*simulation.find_entity(distant_enemy), PlayerId::One));
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {scout},
+                                       .target = world(900, 700)})
+            .ok);
+  simulation.run(220);
+  CHECK(simulation.is_entity_visible_to(*simulation.find_entity(distant_enemy), PlayerId::One));
+
+  const auto opening_tide = simulation.ruin_tide();
+  simulation.run(480);
+  CHECK(simulation.ruin_tide() > opening_tide);
+  const auto* resolved = simulation.find_entity(soldier);
+  CHECK(resolved != nullptr && resolved->resolve < 100);
+  CHECK(simulation.player(PlayerId::One).resolve < 100);
+}
+
 }  // namespace
 
 int main() {
@@ -406,6 +575,13 @@ int main() {
   run_test("stop clears movement and queued orders", stop_clears_movement_and_queued_orders);
   run_test("patrol reverses and remains active", patrol_reverses_and_remains_active);
   run_test("rally point controls completed production", rally_point_controls_completed_production);
+  run_test("worker construction is blocked, costed, and completed",
+           worker_construction_is_blocked_costed_and_completed);
+  run_test("research unlocks units and refreshes existing troops",
+           research_unlocks_units_and_refreshes_existing_troops);
+  run_test("faction powers are distinct and obey cooldowns", faction_powers_are_distinct_and_obey_cooldowns);
+  run_test("control points capture and generate income", control_points_capture_and_generate_income);
+  run_test("Tide, resolve, and visibility are authoritative", tide_resolve_and_visibility_are_authoritative);
 
   if (failures != 0) {
     std::cerr << failures << " native simulation check(s) failed.\n";

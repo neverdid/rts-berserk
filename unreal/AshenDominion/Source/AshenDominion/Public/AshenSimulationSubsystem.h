@@ -5,6 +5,7 @@
 #include "AshenSimulationSubsystem.generated.h"
 
 class AAshenEntityActor;
+class AAshenControlPointActor;
 class AAshenResourceActor;
 class FAshenSimulationRuntime;
 
@@ -49,8 +50,47 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
     bool IssueTrain(int32 ProducerId, bool bSecondaryUnit);
 
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueBuild(int32 WorkerId, EAshenEntityArchetype Building, const FVector& WorldTarget);
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|Commands")
+    bool CanPlaceBuilding(EAshenEntityArchetype Building, const FVector& WorldTarget) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueResearch(int32 ProducerId, EAshenResearch Research);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueActivatePower();
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueRetreat(const TArray<int32>& EntityIds);
+
+    UFUNCTION(BlueprintCallable, Category = "Ashen|Commands")
+    bool IssueSetStance(const TArray<int32>& EntityIds, EAshenStance Stance);
+
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
     FAshenPlayerView GetPlayerView(int32 PlayerIndex) const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    FAshenEntityView GetEntityView(int32 EntityId) const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    TArray<FAshenControlPointView> GetControlPointViews() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    TArray<FAshenResearchView> GetResearchViews(int32 ProducerId) const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    int32 GetRuinTide() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    FString GetFactionPowerLabel() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    FString GetObjectiveText() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    FString GetLastCommandMessage() const { return LastCommandMessage; }
 
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
     int64 GetSimulationTick() const;
@@ -84,12 +124,15 @@ private:
     void PrimeOpeningEconomy();
     void UpdateEnemyCommander();
     void SyncWorldActors();
+    bool StoreCommandResult(bool bOk, const FString& FailureMessage);
     FVector ToWorldPosition(int32 CoreX, int32 CoreY) const;
 
     FAshenSimulationRuntime* Runtime = nullptr;
     float Accumulator = 0.0f;
     int64 LastEnemyDecisionTick = -1;
     bool bGameplayEnabled = false;
+    FString LastCommandMessage;
     TMap<uint32, TWeakObjectPtr<AAshenEntityActor>> EntityActors;
     TMap<uint32, TWeakObjectPtr<AAshenResourceActor>> ResourceActors;
+    TMap<uint32, TWeakObjectPtr<AAshenControlPointActor>> ControlPointActors;
 };

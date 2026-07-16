@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AshenTypes.h"
 #include "GameFramework/PlayerController.h"
 #include "AshenPlayerController.generated.h"
 
@@ -13,6 +14,8 @@ enum class EAshenCommandMode : uint8
     AttackMove,
     Patrol,
     RallyPoint,
+    BuildBarracks,
+    BuildTurret,
 };
 
 UCLASS()
@@ -24,6 +27,7 @@ public:
     AAshenPlayerController();
     virtual void SetupInputComponent() override;
     virtual bool InputKey(const FInputKeyEventArgs& Params) override;
+    void StartSkirmish();
 
     UFUNCTION(BlueprintPure, Category = "Ashen")
     int32 GetSelectedCount() const;
@@ -37,6 +41,11 @@ public:
     int32 GetPrimarySelectedEntityId() const;
     int32 GetActiveControlGroup() const noexcept { return ActiveControlGroup; }
     bool GetCommandFeedback(FVector& OutLocation, bool& bOutHostile, float& OutStrength) const;
+    bool GetCommandButtonRect(int32 Slot, FVector2D& OutMin, FVector2D& OutMax) const;
+    FString GetCommandButtonLabel(int32 Slot) const;
+    FString GetCommandButtonHotkey(int32 Slot) const;
+    bool IsCommandButtonEnabled(int32 Slot) const;
+    bool GetPlacementPreview(FVector& OutLocation, EAshenEntityArchetype& OutBuilding, bool& bOutValid) const;
 
 private:
     void BeginSelection();
@@ -48,13 +57,21 @@ private:
     void BeginAttackMove();
     void BeginPatrol();
     void BeginRallyPoint();
+    void BeginBuild(EAshenEntityArchetype Building);
     void StopSelected();
     void HoldSelected();
+    void RetreatSelected();
+    void SetSelectedStance(EAshenStance Stance);
     void TrainPrimary();
     void TrainSecondary();
+    void ResearchTier();
+    void ResearchFactionDoctrine();
+    void ActivateFactionPower();
     void DeploySkirmish();
     void ToggleFrontEnd();
     void HandleFrontEndClick();
+    bool HandleCommandCardClick();
+    void ExecuteCommandSlot(int32 Slot);
     void ClearSelection();
     void PruneSelection();
     void AddToSelection(AAshenEntityActor* Entity);
@@ -65,6 +82,8 @@ private:
     TArray<int32> SelectedUnitIds() const;
     TArray<int32> SelectedWorkerIds() const;
     int32 SelectedBuildingId() const;
+    EAshenEntityArchetype PrimarySelectedArchetype() const;
+    EAshenResearch ContextResearch() const;
     UAshenSimulationSubsystem* Simulation() const;
 
     TArray<TWeakObjectPtr<AAshenEntityActor>> SelectedActors;
