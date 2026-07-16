@@ -31,8 +31,8 @@ void run_test(const std::string_view name, Test&& test) {
   std::cout << (failures == before ? "[pass] " : "[fail] ") << name << '\n';
 }
 
-[[nodiscard]] Simulation sandbox(const FactionId one = FactionId::Candlebound,
-                                 const FactionId two = FactionId::Hollow) {
+[[nodiscard]] Simulation sandbox(const FactionId one = FactionId::Compact,
+                                 const FactionId two = FactionId::Ascendancy) {
   SimulationConfig config{};
   config.player_one_faction = one;
   config.player_two_faction = two;
@@ -85,7 +85,7 @@ void production_obeys_cost_supply_and_build_time() {
   static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
   const auto barracks = simulation.spawn_entity(PlayerId::One, EntityType::Barracks, world(180, 100));
   const auto before_ore = simulation.player(PlayerId::One).ore;
-  const auto definition = entity_definition(FactionId::Candlebound, EntityType::Vanguard);
+  const auto definition = entity_definition(FactionId::Compact, EntityType::Vanguard);
   const auto result = simulation.execute_now(Command{.player = PlayerId::One,
                                                       .type = CommandType::Train,
                                                       .producer = barracks,
@@ -100,15 +100,16 @@ void production_obeys_cost_supply_and_build_time() {
 }
 
 void factions_keep_meaningful_asymmetry() {
-  const auto remnant = entity_definition(FactionId::Candlebound, EntityType::Vanguard);
-  const auto choir = entity_definition(FactionId::Hollow, EntityType::Vanguard);
-  const auto host = entity_definition(FactionId::Sepulcher, EntityType::Vanguard);
-  CHECK(choir.cost < remnant.cost);
-  CHECK(choir.speed_per_tick > remnant.speed_per_tick);
-  CHECK(host.hit_points > remnant.hit_points);
-  CHECK(host.damage > remnant.damage);
-  CHECK(faction_definition(FactionId::Hollow).income_basis_points >
-        faction_definition(FactionId::Sepulcher).income_basis_points);
+  const auto compact = entity_definition(FactionId::Compact, EntityType::Vanguard);
+  const auto ascendancy = entity_definition(FactionId::Ascendancy, EntityType::Vanguard);
+  const auto concord = entity_definition(FactionId::Concord, EntityType::Vanguard);
+  CHECK(ascendancy.cost > compact.cost);
+  CHECK(ascendancy.hit_points > compact.hit_points);
+  CHECK(ascendancy.speed_per_tick < compact.speed_per_tick);
+  CHECK(concord.hit_points > ascendancy.hit_points);
+  CHECK(concord.damage > compact.damage);
+  CHECK(faction_definition(FactionId::Ascendancy).income_basis_points >
+        faction_definition(FactionId::Concord).income_basis_points);
 }
 
 void command_destruction_ends_the_match() {
@@ -373,7 +374,7 @@ void rally_point_controls_completed_production() {
                                        .producer = barracks,
                                        .train_type = EntityType::Vanguard})
             .ok);
-  simulation.run(entity_definition(FactionId::Candlebound, EntityType::Vanguard).build_ticks);
+  simulation.run(entity_definition(FactionId::Compact, EntityType::Vanguard).build_ticks);
   const auto trained = std::find_if(simulation.entities().begin(), simulation.entities().end(),
                                     [](const Entity& entity) { return entity.type == EntityType::Vanguard; });
   CHECK(trained != simulation.entities().end());

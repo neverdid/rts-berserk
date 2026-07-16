@@ -1772,13 +1772,16 @@ function canPlaceUnit(state: GameState, position: Vec2, radius: number): boolean
 function formationSlots(center: Vec2, count: number): Vec2[] {
   const slots: Vec2[] = []
   const columns = Math.ceil(Math.sqrt(count))
+  const rows = Math.ceil(count / columns)
   const spacing = 44
   for (let index = 0; index < count; index += 1) {
-    const col = index % columns
     const row = Math.floor(index / columns)
+    const firstInRow = row * columns
+    const itemsInRow = Math.min(columns, count - firstInRow)
+    const col = index - firstInRow
     slots.push({
-      x: center.x + (col - (columns - 1) / 2) * spacing,
-      y: center.y + (row - Math.floor(count / columns) / 2) * spacing,
+      x: center.x + (col - (itemsInRow - 1) / 2) * spacing,
+      y: center.y + (row - (rows - 1) / 2) * spacing,
     })
   }
   return slots

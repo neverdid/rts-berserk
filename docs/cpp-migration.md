@@ -54,9 +54,9 @@ state hashes and snapshots. Per-unit Actor replication is intentionally avoided.
 1. **Native foundation - complete**: fixed-step core, commands, economy, combat, tests, and CI.
 2. **Unreal foundation - complete**: UE 5.8 project, module bridge, camera, selection, visual registry,
    contextual commands, HUD, and a procedural battlefield.
-3. **Parity fixtures - next**: export representative TypeScript scenarios and assert equivalent C++
-   outcomes.
-4. **Feature parity**: construction, research, faction powers, control points, fog, advanced
+3. **Parity fixtures - complete**: authored scenarios execute through TypeScript and the portable C++
+   runner, with catalog and canonical gameplay checkpoints enforced in CI.
+4. **Feature parity - next**: construction, research, faction powers, control points, fog, advanced
    AI, and story objectives.
 5. **Competitive networking**: authoritative server, command buffering, reconnect snapshots, replays,
    matchmaking, and desync diagnostics.
@@ -75,6 +75,25 @@ state hashes and snapshots. Per-unit Actor replication is intentionally avoided.
 - CI builds and tests the native core on Windows and Linux and keeps the web prototype green.
 - Unreal changes must pass UHT, an editor build, the `Ashen` automation suite, a game launch, and a
   nonblank render inspection before merge.
+
+## Cross-runtime parity gate
+
+`parity/scenarios.ts` owns the language-neutral scenarios and serializes them through the versioned
+line protocol consumed by `ashen_parity_runner`. The same definitions execute directly against the
+TypeScript reference. The comparison intentionally covers only systems implemented in both runtimes;
+new fields join the contract when their authoritative C++ implementation lands.
+
+Current contracts cover:
+
+- all three faction identities, income rates, and shared entity catalog values
+- movement completion with an explicit positional tolerance between floating-point and integer solvers
+- black-iron harvesting and delivery
+- production cost, timing, supply use, and entity creation
+- focused combat removal and command-structure victory
+- command acceptance, player state, entity counts, and match outcome
+
+Run it after a Debug native build with `npm run test:parity`. CI builds a Release parity runner and runs
+the same contract on every push and pull request.
 
 ## Current parity
 

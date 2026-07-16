@@ -68,21 +68,20 @@ void AAshenHUD::DrawFrontEnd(const AAshenPlayerController& Controller)
     DrawRect(FLinearColor(0.012f, 0.016f, 0.017f, 0.76f), 0.0f, 0.0f, FMath::Min(520.0f, Width * 0.54f), Height);
     DrawRect(Blood, 0.0f, 0.0f, 5.0f, Height);
 
-    const float TitleScale = bCompact ? 1.28f : 1.55f;
-    const float TitleOneY = bCompact ? 34.0f : 62.0f;
-    const float TitleTwoY = bCompact ? 78.0f : 121.0f;
-    const float RuleY = bCompact ? 128.0f : 184.0f;
-    const float ChapterY = bCompact ? 143.0f : 202.0f;
-    const float StoryOneY = bCompact ? 181.0f : 245.0f;
-    const float StoryTwoY = bCompact ? 203.0f : 268.0f;
-    DrawText(TEXT("ASHEN"), Bone, Margin, TitleOneY, GEngine->GetLargeFont(), TitleScale, false);
-    DrawText(TEXT("DOMINION"), Bone, Margin, TitleTwoY, GEngine->GetLargeFont(), TitleScale, false);
+    const float TitleScale = bCompact ? 1.36f : 1.70f;
+    const float TitleY = bCompact ? 34.0f : 62.0f;
+    const float RuleY = bCompact ? 88.0f : 132.0f;
+    const float ChapterY = bCompact ? 103.0f : 150.0f;
+    const float StoryOneY = bCompact ? 141.0f : 190.0f;
+    const float StoryTwoY = bCompact ? 163.0f : 213.0f;
+    DrawText(TEXT("VOWFALL"), Bone, Margin, TitleY, GEngine->GetLargeFont(), TitleScale, false);
     DrawRect(Bronze, Margin, RuleY, 122.0f, 3.0f);
-    DrawText(TEXT("THE VEILFALL"), Bronze, Margin, ChapterY, GEngine->GetMediumFont(), 0.95f, false);
+    DrawText(TEXT("THE BRIDGE OF NAMES"), Bronze, Margin, ChapterY,
+             GEngine->GetMediumFont(), 0.95f, false);
 
-    DrawText(TEXT("The sun has not risen in thirteen years."), DimBone, Margin, StoryOneY,
+    DrawText(TEXT("New iron remembers a name older than law."), DimBone, Margin, StoryOneY,
              GEngine->GetSmallFont(), 1.0f, false);
-    DrawText(TEXT("At the last crossing, iron answers the choir."), DimBone, Margin, StoryTwoY,
+    DrawText(TEXT("At the ford, three mercies become a war."), DimBone, Margin, StoryTwoY,
              GEngine->GetSmallFont(), 1.0f, false);
 
     FVector2D ButtonMin;
@@ -112,7 +111,7 @@ void AAshenHUD::DrawFrontEnd(const AAshenPlayerController& Controller)
         const float LockedHeight = bCompact ? 39.0f : 46.0f;
         const float LockedGap = bCompact ? 46.0f : 54.0f;
         DrawRect(FLinearColor(0.025f, 0.029f, 0.029f, 0.86f), ButtonMin.X, LockedY, ButtonWidth, LockedHeight);
-        DrawText(TEXT("STORY  //  THE LAST CANDLE"), DimBone, ButtonMin.X + 18.0f, LockedY + 10.0f,
+        DrawText(TEXT("STORY  //  THREE BEGINNINGS"), DimBone, ButtonMin.X + 18.0f, LockedY + 10.0f,
                  GEngine->GetSmallFont(), 0.95f, false);
         DrawText(TEXT("LOCKED"), FLinearColor(0.34f, 0.31f, 0.26f), ButtonMax.X - 70.0f, LockedY + 10.0f,
                  GEngine->GetSmallFont(), 0.85f, false);
@@ -131,17 +130,18 @@ void AAshenHUD::DrawFrontEnd(const AAshenPlayerController& Controller)
         const float StoryX = Width - 410.0f;
         const float StoryY = Height - 165.0f;
         DrawRect(Blood, StoryX, StoryY, 3.0f, 104.0f);
-        DrawText(TEXT("THE LAST CROSSING"), Bone, StoryX + 18.0f, StoryY, GEngine->GetMediumFont(), 1.0f, false);
-        DrawText(TEXT("Candlebound Remnant"), Bronze, StoryX + 18.0f, StoryY + 34.0f,
+        DrawText(TEXT("THE BRIDGE OF NAMES"), Bone, StoryX + 18.0f, StoryY,
+                 GEngine->GetMediumFont(), 1.0f, false);
+        DrawText(TEXT("Cinder Compact"), Bronze, StoryX + 18.0f, StoryY + 34.0f,
                  GEngine->GetSmallFont(), 0.95f, false);
-        DrawText(TEXT("versus the Hollow Choir"), DimBone, StoryX + 18.0f, StoryY + 58.0f,
+        DrawText(TEXT("versus the Gloam Ascendancy"), DimBone, StoryX + 18.0f, StoryY + 58.0f,
                  GEngine->GetSmallFont(), 0.95f, false);
-        DrawText(TEXT("Two bridges. One contested heart."), DimBone, StoryX + 18.0f, StoryY + 82.0f,
+        DrawText(TEXT("Black-Iron Ford. One memory beneath it."), DimBone, StoryX + 18.0f, StoryY + 82.0f,
                  GEngine->GetSmallFont(), 0.95f, false);
     }
 
     const float FooterY = bCompact ? FMath::Min(442.0f, Height - 28.0f) : Height - 34.0f;
-    DrawText(TEXT("UNREAL DEVELOPMENT BUILD  //  VEILFALL FRONT"), FLinearColor(0.29f, 0.30f, 0.29f),
+    DrawText(TEXT("VOWFALL  //  UNREAL DEVELOPMENT BUILD"), FLinearColor(0.29f, 0.30f, 0.29f),
              Margin, FooterY, GEngine->GetSmallFont(), 0.82f, false);
 }
 
@@ -160,9 +160,9 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
     const float LeftWidth = FMath::Min(410.0f, (SafeWidth - 64.0f) * 0.52f);
     DrawRect(Ink, 20.0f, 18.0f, LeftWidth, 66.0f);
     DrawRect(Bronze, 20.0f, 18.0f, 4.0f, 66.0f);
-    DrawText(TEXT("ASHEN DOMINION"), Bone, 38.0f, 29.0f, GEngine->GetMediumFont(), 1.0f, false);
-    DrawText(bCompact ? TEXT("CANDLEBOUND  //  LAST CROSSING")
-                      : TEXT("CANDLEBOUND REMNANT  //  LAST CROSSING"),
+    DrawText(TEXT("VOWFALL"), Bone, 38.0f, 29.0f, GEngine->GetMediumFont(), 1.0f, false);
+    DrawText(bCompact ? TEXT("CINDER COMPACT  //  BLACK-IRON FORD")
+                      : TEXT("CINDER COMPACT  //  THE BRIDGE OF NAMES"),
              DimBone, 38.0f, 57.0f,
              GEngine->GetSmallFont(), 0.84f, false);
 
@@ -190,7 +190,7 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
              Selected > 0 ? Bone : DimBone, PanelX + 20.0f, PanelY + 14.0f,
              GEngine->GetMediumFont(), 0.9f, false);
     FString Status = Selected > 0
-                         ? FString::Printf(TEXT("%d CANDLEBOUND  //  %s"), Selected,
+                         ? FString::Printf(TEXT("%d CINDER COMPACT  //  %s"), Selected,
                                            *Simulation.GetEntityOrderLabel(PrimaryEntityId))
                          : TEXT("THE CROSSING AWAITS YOUR COMMAND");
     if (Controller.GetActiveControlGroup() >= 0)
@@ -362,8 +362,9 @@ void AAshenHUD::DrawMatchResult(const UAshenSimulationSubsystem& Simulation)
 
     DrawRect(FLinearColor(0.005f, 0.007f, 0.008f, 0.94f), X, Y, PanelWidth, PanelHeight);
     DrawRect(bWon ? Bronze : Blood, X, Y, 5.0f, PanelHeight);
-    DrawText(bWon ? TEXT("THE CROSSING HOLDS") : TEXT("THE LAST CANDLE FALLS"), Bone,
+    DrawText(bWon ? TEXT("THE BRIDGE HOLDS") : TEXT("THE COMPACT LINE BREAKS"), Bone,
              X + 34.0f, Y + 32.0f, GEngine->GetLargeFont(), 1.05f, false);
-    DrawText(bWon ? TEXT("The Hollow Choir has been broken.") : TEXT("The Hollow Choir claims another night."),
+    DrawText(bWon ? TEXT("The Gloam Ascendancy has been broken.")
+                  : TEXT("The Gloam Ascendancy claims another night."),
              DimBone, X + 36.0f, Y + 91.0f, GEngine->GetSmallFont(), 1.0f, false);
 }

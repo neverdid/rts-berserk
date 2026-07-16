@@ -28,9 +28,13 @@ if(ASHEN_BUILD_TESTS AND BUILD_TESTING)
   target_link_libraries(ashen_core_tests PRIVATE ashen_core)
   add_test(NAME ashen_core_tests COMMAND ashen_core_tests)
 
+  add_executable(ashen_parity_runner tools/parity_runner.cpp)
+  target_link_libraries(ashen_parity_runner PRIVATE ashen_core)
+  add_test(NAME ashen_parity_catalog COMMAND ashen_parity_runner --catalog)
+
   if(MINGW)
     get_filename_component(ASHEN_MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    set_tests_properties(ashen_core_tests PROPERTIES
+    set_tests_properties(ashen_core_tests ashen_parity_catalog PROPERTIES
       ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${ASHEN_MINGW_BIN_DIR}"
     )
   endif()
