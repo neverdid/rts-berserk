@@ -110,12 +110,32 @@ bool FAshenWorldVisualFoundationTest::RunTest(const FString &Parameters)
         Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MineMouths")));
     const UInstancedStaticMeshComponent *Gravewood =
         Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("ForestRoots")));
+    const UInstancedStaticMeshComponent *Roadbed =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("Roadbed")));
+    const UInstancedStaticMeshComponent *BridgeTimbers =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("BridgeTimbers")));
+    const UInstancedStaticMeshComponent *BridgeIron =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("BridgeIron")));
+    const UInstancedStaticMeshComponent *Wayshrine =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MythicArches")));
     TestTrue(TEXT("Northwest massif owns a substantial rock silhouette"),
              Mountain != nullptr && Mountain->GetInstanceCount() >= 24);
     TestTrue(TEXT("Production art never supplies deterministic collision"),
              Mountain != nullptr && Mountain->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
     TestEqual(TEXT("The concealed route owns two mine entrances"), Mines != nullptr ? Mines->GetInstanceCount() : 0, 2);
     TestTrue(TEXT("Gravewood owns a dedicated root layer"), Gravewood != nullptr && Gravewood->GetInstanceCount() > 0);
+    TestTrue(TEXT("Subdivided roadbeds and joint caps keep every route visually continuous"),
+             Roadbed != nullptr && Roadbed->GetInstanceCount() >= 80);
+    TestEqual(TEXT("Two flank bridges own complete plank, curb, and bridgehead kits"),
+              BridgeTimbers != nullptr ? BridgeTimbers->GetInstanceCount() : 0, 38);
+    TestEqual(TEXT("Tall bridge iron that read as deck spikes stays removed"),
+              BridgeIron != nullptr ? BridgeIron->GetInstanceCount() : 0, 0);
+    TestEqual(TEXT("The off-lane Drowned Wayshrine uses two upright ruin fragments"),
+              Wayshrine != nullptr ? Wayshrine->GetInstanceCount() : 0, 2);
+    TestNotNull(TEXT("River enters the capture beyond the north playable boundary"),
+                Arena->GetDefaultSubobjectByName(TEXT("WaterSegment_00")));
+    TestNotNull(TEXT("River leaves the capture beyond the south playable boundary"),
+                Arena->GetDefaultSubobjectByName(TEXT("WaterSegment_31")));
     TestNull(TEXT("Legacy perimeter monoliths stay removed"),
              Arena->GetDefaultSubobjectByName(TEXT("BoundaryMonoliths")));
     TestEqual(TEXT("Expanded battlefield width remains authoritative"), Ashen::WorldLayout::Width, 4'800.0f);

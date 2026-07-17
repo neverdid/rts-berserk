@@ -24,12 +24,33 @@ namespace
 constexpr float MapWidth = Ashen::WorldLayout::Width;
 constexpr float MapHeight = Ashen::WorldLayout::Height;
 constexpr float RiverCenterX = Ashen::WorldLayout::CenterX;
+constexpr float RiverWidth = 270.0f;
 
 float SmoothRange(const float Minimum, const float Maximum, const float Value)
 {
     const float Alpha =
         FMath::Clamp((Value - Minimum) / FMath::Max(Maximum - Minimum, UE_KINDA_SMALL_NUMBER), 0.0f, 1.0f);
     return Alpha * Alpha * (3.0f - 2.0f * Alpha);
+}
+
+float RiverXAt(const float Y)
+{
+    const float Alpha = FMath::Clamp(Y / MapHeight, 0.0f, 1.0f);
+    return RiverCenterX + FMath::Sin(Alpha * 2.0f * PI * 1.10f - 0.35f) * 66.0f +
+           FMath::Sin(Alpha * 2.0f * PI * 2.20f + 0.60f) * 17.0f;
+}
+
+bool RiverSegmentOverlapsCrossing(const float StartY, const float EndY, const float Clearance)
+{
+    for (const float CrossingY : {Ashen::WorldLayout::NorthCrossingY, Ashen::WorldLayout::CentralCrossingY,
+                                  Ashen::WorldLayout::SouthCrossingY})
+    {
+        if (EndY >= CrossingY - Clearance && StartY <= CrossingY + Clearance)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 const TArray<FVector2D> &DirectRoute()
@@ -105,18 +126,22 @@ float TerrainHeightAt(const float X, const float Y)
                    FMath::Max(1.0f - SmoothRange(390.0f, 610.0f, HumanBaseDistance),
                               1.0f - SmoothRange(390.0f, 610.0f, MonsterBaseDistance)));
 
+    const float RiverX = RiverXAt(ClampedY);
+    const float RiverDistance = FMath::Abs(ClampedX - RiverX);
+    const float RiverOutlet =
+        1.0f - SmoothRange(RiverWidth * 0.62f, RiverWidth * 1.60f, RiverDistance);
     const float BorderDistance =
         FMath::Min(FMath::Min(ClampedX, MapWidth - ClampedX), FMath::Min(ClampedY, MapHeight - ClampedY));
-    const float EdgeRise = (1.0f - SmoothRange(95.0f, 520.0f, BorderDistance)) * 155.0f;
+    const float EdgeRise =
+        (1.0f - SmoothRange(95.0f, 520.0f, BorderDistance)) * 155.0f * (1.0f - RiverOutlet * 0.94f);
     const float BroadUndulation = FMath::Sin(ClampedX * 0.0031f + ClampedY * 0.0023f) * 17.0f +
                                   FMath::Sin(ClampedX * 0.0074f - ClampedY * 0.0048f) * 9.0f;
-    const float Mountain = EllipseFalloff(Point, {1'420.0f, 800.0f}, {650.0f, 520.0f}) * 330.0f +
-                           EllipseFalloff(Point, {1'720.0f, 1'050.0f}, {420.0f, 360.0f}) * 150.0f;
+    const float Mountain = EllipseFalloff(Point, {1'140.0f, 760.0f}, {430.0f, 420.0f}) * 245.0f +
+                           EllipseFalloff(Point, {1'430.0f, 820.0f}, {510.0f, 470.0f}) * 315.0f +
+                           EllipseFalloff(Point, {1'730.0f, 900.0f}, {430.0f, 390.0f}) * 235.0f;
     const float GravewoodRise = EllipseFalloff(Point, {3'380.0f, 2'020.0f}, {700.0f, 540.0f}) * 46.0f;
 
-    const float RiverX = RiverCenterX + FMath::Sin((ClampedY / MapHeight) * 8.64f) * 58.0f;
-    const float RiverDistance = FMath::Abs(ClampedX - RiverX);
-    const float RiverCut = (1.0f - SmoothRange(115.0f, 280.0f, RiverDistance)) * 42.0f;
+    const float RiverCut = (1.0f - SmoothRange(RiverWidth * 0.40f, RiverWidth * 0.98f, RiverDistance)) * 46.0f;
     const float Terrain = EdgeRise + (BroadUndulation + Mountain + GravewoodRise) * (1.0f - ClearingMask * 0.94f);
     return Terrain - RiverCut;
 }
@@ -124,7 +149,10 @@ float TerrainHeightAt(const float X, const float Y)
 float RenderTerrainHeightAt(const float X, const float Y)
 {
     const float OutsideDistance = FMath::Max(FMath::Max(-X, X - MapWidth), FMath::Max(-Y, Y - MapHeight));
-    return TerrainHeightAt(X, Y) + SmoothRange(0.0f, 1'050.0f, OutsideDistance) * 310.0f;
+    const float RiverOutlet =
+        1.0f - SmoothRange(RiverWidth * 0.62f, RiverWidth * 1.60f, FMath::Abs(X - RiverXAt(Y)));
+    const float OutsideRise = SmoothRange(0.0f, 1'050.0f, OutsideDistance) * 310.0f;
+    return TerrainHeightAt(X, Y) + OutsideRise * (1.0f - RiverOutlet * 0.94f);
 }
 
 Ashen::Materials::FSurfaceStyle SurfaceStyle(const FLinearColor &BaseColor, const FLinearColor &SecondaryColor,
@@ -441,16 +469,23 @@ void AAshenArena::BuildTerrain()
 
 void AAshenArena::BuildRiver()
 {
-    constexpr int32 SegmentCount = 16;
-    constexpr float RiverWidth = 290.0f;
+    constexpr int32 SegmentCount = 32;
+    constexpr float VisualMargin = 1'300.0f;
+    constexpr float RiverStartY = -VisualMargin;
+    constexpr float RiverEndY = MapHeight + VisualMargin;
+    constexpr float BankWidth = 54.0f;
     UStaticMesh *Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+    FRandomStream Random(0x71A3B4C2);
 
     for (int32 Index = 0; Index < SegmentCount; ++Index)
     {
-        const float Y0 = static_cast<float>(Index) * MapHeight / SegmentCount - 10.0f;
-        const float Y1 = static_cast<float>(Index + 1) * MapHeight / SegmentCount + 10.0f;
-        const float X0 = RiverCenterX + FMath::Sin(static_cast<float>(Index) * 0.72f) * 58.0f;
-        const float X1 = RiverCenterX + FMath::Sin(static_cast<float>(Index + 1) * 0.72f) * 58.0f;
+        const float Alpha0 = static_cast<float>(Index) / static_cast<float>(SegmentCount);
+        const float Alpha1 = static_cast<float>(Index + 1) / static_cast<float>(SegmentCount);
+        const float Y0 = FMath::Lerp(RiverStartY, RiverEndY, Alpha0) - 8.0f;
+        const float Y1 = FMath::Lerp(RiverStartY, RiverEndY, Alpha1) + 8.0f;
+        const float X0 = RiverXAt(Y0);
+        const float X1 = RiverXAt(Y1);
+        const float SegmentWidth = RiverWidth * (0.94f + FMath::Sin(Alpha0 * 2.0f * PI * 3.0f) * 0.045f);
         const FVector2D WaterDelta(X1 - X0, Y1 - Y0);
         const float WaterLength = WaterDelta.Size();
         const float WaterYaw = FMath::RadiansToDegrees(FMath::Atan2(WaterDelta.Y, WaterDelta.X));
@@ -463,44 +498,38 @@ void AAshenArena::BuildRiver()
         WaterSegment->SetStaticMesh(Plane);
         WaterSegment->SetRelativeTransform(FTransform(FRotator(0.0f, WaterYaw, 0.0f),
                                                       FVector((X0 + X1) * 0.5f, (Y0 + Y1) * 0.5f, 4.0f),
-                                                      FVector(WaterLength / 100.0f, RiverWidth / 100.0f, 1.0f)));
+                                                      FVector(WaterLength / 100.0f, SegmentWidth / 100.0f, 1.0f)));
         WaterSegments.Add(WaterSegment);
 
         const FVector2D SegmentDirection = FVector2D(X1 - X0, Y1 - Y0).GetSafeNormal();
         const FVector2D SegmentNormal(-SegmentDirection.Y, SegmentDirection.X);
-        const FVector2D Direction = SegmentDirection;
-        const FVector2D Normal = SegmentNormal;
+        const bool bCrossingClearance = RiverSegmentOverlapsCrossing(Y0, Y1, 175.0f);
+        const bool bPlayableBank = Y1 >= -80.0f && Y0 <= MapHeight + 80.0f;
         for (int32 Bank = -1; Bank <= 1; Bank += 2)
         {
-            for (int32 Cluster = 0; Cluster < 3; ++Cluster)
+            const float BankOffset = (SegmentWidth * 0.5f + BankWidth * 0.44f) * static_cast<float>(Bank);
+            const FVector2D BankStart = FVector2D(X0, Y0) + SegmentNormal * BankOffset;
+            const FVector2D BankEnd = FVector2D(X1, Y1) + SegmentNormal * BankOffset;
+            const FVector2D BankMidpoint = (BankStart + BankEnd) * 0.5f;
+            if (bPlayableBank && !bCrossingClearance)
             {
-                const float Along = 0.18f + static_cast<float>(Cluster) * 0.32f;
-                const FVector2D BankPoint =
-                    FVector2D(X0, Y0) + FVector2D(X1 - X0, Y1 - Y0) * Along +
-                    Normal * ((RiverWidth * 0.54f + Cluster * 11.0f) * static_cast<float>(Bank));
-                const float Yaw = static_cast<float>((Index * 37 + Cluster * 29 + Bank * 11) % 180);
-                const float BankHeight = TerrainHeightAt(BankPoint.X, BankPoint.Y);
-                RiverBanks->AddInstance(
-                    FTransform(FRotator(static_cast<float>((Cluster - 1) * 7), Yaw, static_cast<float>(Bank * 4)),
-                               FVector(BankPoint.X, BankPoint.Y, BankHeight + 13.0f),
-                               FVector(0.64f + Cluster * 0.16f, 0.27f + (Index % 3) * 0.05f, 0.22f + Cluster * 0.03f)));
+                AddFlatSegment(RiverBanks, BankStart, BankEnd, BankWidth, 9.0f,
+                               TerrainHeightAt(BankMidpoint.X, BankMidpoint.Y) + 4.5f);
 
-                if ((Index + Cluster) % 2 == 0)
+                if ((Index + Bank + 1) % 3 == 0)
                 {
-                    const FVector2D ReedPoint = BankPoint - Normal * (24.0f * static_cast<float>(Bank));
+                    const float Along = Random.FRandRange(0.28f, 0.72f);
+                    const FVector2D ReedPoint = FVector2D(X0, Y0) + WaterDelta * Along +
+                                                SegmentNormal * (SegmentWidth * 0.43f * static_cast<float>(Bank));
                     Reeds->AddInstance(
-                        FTransform(FRotator(0.0f, Yaw + 31.0f, static_cast<float>(Bank * 5)),
-                                   FVector(ReedPoint.X, ReedPoint.Y, TerrainHeightAt(ReedPoint.X, ReedPoint.Y) + 17.0f),
-                                   FVector(0.10f, 0.10f, 0.36f + static_cast<float>((Index + Cluster) % 3) * 0.08f)));
+                        FTransform(FRotator(0.0f, WaterYaw + Random.FRandRange(-18.0f, 18.0f), 0.0f),
+                                   FVector(ReedPoint.X, ReedPoint.Y,
+                                           TerrainHeightAt(ReedPoint.X, ReedPoint.Y) + 14.0f),
+                                   FVector(0.07f, 0.07f, Random.FRandRange(0.24f, 0.34f))));
                 }
             }
         }
     }
-
-    // The central cursed-iron node sits on a raised ritual island.
-    RiverBanks->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 9.0f),
-                   FVector(2.15f, 1.55f, 0.18f)));
 }
 
 void AAshenArena::BuildRoadsAndBridges()
@@ -511,50 +540,92 @@ void AAshenArena::BuildRoadsAndBridges()
         {
             const FVector2D Direction = (Points[Index] - Points[Index - 1]).GetSafeNormal();
             const FVector2D Normal(-Direction.Y, Direction.X);
-            AddFlatSegment(Roadbed, Points[Index - 1], Points[Index], Width, 4.0f, 4.5f);
-            AddFlatSegment(RoadStones, Points[Index - 1], Points[Index], Width * 0.58f, 2.0f, 7.0f);
-            for (const float Side : {-1.0f, 1.0f})
+            const float SegmentLength = FVector2D::Distance(Points[Index - 1], Points[Index]);
+            const int32 PieceCount = FMath::Max(1, FMath::CeilToInt(SegmentLength / 190.0f));
+            for (int32 Piece = 0; Piece < PieceCount; ++Piece)
             {
-                const FVector2D Offset = Normal * Side * Width * 0.18f;
-                AddFlatSegment(RoadRuts, Points[Index - 1] + Offset, Points[Index] + Offset, 5.0f, 1.0f, 8.4f);
+                const FVector2D Start = FMath::Lerp(Points[Index - 1], Points[Index],
+                                                    static_cast<float>(Piece) / static_cast<float>(PieceCount));
+                const FVector2D End = FMath::Lerp(Points[Index - 1], Points[Index],
+                                                  static_cast<float>(Piece + 1) / static_cast<float>(PieceCount));
+                const FVector2D Midpoint = (Start + End) * 0.5f;
+                const float GroundHeight = TerrainHeightAt(Midpoint.X, Midpoint.Y);
+                AddFlatSegment(Roadbed, Start, End, Width, 4.0f, GroundHeight + 4.5f);
+                AddFlatSegment(RoadStones, Start, End, Width * 0.58f, 2.0f, GroundHeight + 7.0f);
+                for (const float Side : {-1.0f, 1.0f})
+                {
+                    const FVector2D Offset = Normal * Side * Width * 0.18f;
+                    AddFlatSegment(RoadRuts, Start + Offset, End + Offset, 5.0f, 1.0f,
+                                   GroundHeight + 8.4f);
+                }
+            }
+
+            if (Index < Points.Num() - 1)
+            {
+                const FVector2D Joint = Points[Index];
+                const float GroundHeight = TerrainHeightAt(Joint.X, Joint.Y);
+                Roadbed->AddInstance(FTransform(FRotator::ZeroRotator,
+                                                FVector(Joint.X, Joint.Y, GroundHeight + 4.5f),
+                                                FVector(Width / 100.0f, Width / 100.0f, 0.04f)));
+                RoadStones->AddInstance(FTransform(FRotator::ZeroRotator,
+                                                   FVector(Joint.X, Joint.Y, GroundHeight + 7.0f),
+                                                   FVector(Width * 0.58f / 100.0f, Width * 0.58f / 100.0f,
+                                                           0.02f)));
             }
         }
     };
     AddRoad(DirectRoute(), 178.0f);
     AddRoad(NorthRoute(), 116.0f);
     AddRoad(SouthRoute(), 116.0f);
+    for (const FVector2D Junction : {DirectRoute()[0], DirectRoute().Last()})
+    {
+        const float GroundHeight = TerrainHeightAt(Junction.X, Junction.Y);
+        Roadbed->AddInstance(FTransform(FRotator::ZeroRotator, FVector(Junction.X, Junction.Y, GroundHeight + 4.5f),
+                                        FVector(1.95f, 1.95f, 0.04f)));
+        RoadStones->AddInstance(FTransform(FRotator::ZeroRotator,
+                                           FVector(Junction.X, Junction.Y, GroundHeight + 7.0f),
+                                           FVector(1.12f, 1.12f, 0.02f)));
+    }
 
     for (const float BridgeY : {Ashen::WorldLayout::NorthCrossingY, Ashen::WorldLayout::SouthCrossingY})
     {
+        const float BridgeX = RiverXAt(BridgeY);
         for (int32 Plank = -6; Plank <= 6; ++Plank)
         {
-            const float X = RiverCenterX + static_cast<float>(Plank) * 23.0f;
+            const float X = BridgeX + static_cast<float>(Plank) * 23.0f;
             BridgeTimbers->AddInstance(
                 FTransform(FRotator(0.0f, 0.0f, 0.0f), FVector(X, BridgeY, 18.0f), FVector(0.205f, 1.62f, 0.12f)));
         }
-        for (const float RailOffset : {-92.0f, 92.0f})
+        // Low timber curbs read cleanly from the RTS camera; tall rails looked like spikes through the deck.
+        for (const float CurbOffset : {-79.0f, 79.0f})
         {
-            BridgeIron->AddInstance(FTransform(FRotator::ZeroRotator,
-                                               FVector(RiverCenterX, BridgeY + RailOffset, 36.0f),
-                                               FVector(3.35f, 0.075f, 0.11f)));
-            for (const float PostOffset : {-135.0f, 0.0f, 135.0f})
+            BridgeTimbers->AddInstance(FTransform(FRotator::ZeroRotator,
+                                                  FVector(BridgeX, BridgeY + CurbOffset, 29.0f),
+                                                  FVector(3.35f, 0.055f, 0.08f)));
+            for (const float PostOffset : {-142.0f, 142.0f})
             {
-                BridgeIron->AddInstance(FTransform(FRotator::ZeroRotator,
-                                                   FVector(RiverCenterX + PostOffset, BridgeY + RailOffset, 56.0f),
-                                                   FVector(0.07f, 0.07f, 0.52f)));
+                BridgeTimbers->AddInstance(FTransform(FRotator::ZeroRotator,
+                                                      FVector(BridgeX + PostOffset, BridgeY + CurbOffset, 35.0f),
+                                                      FVector(0.10f, 0.10f, 0.28f)));
             }
         }
     }
 
-    // A narrow ritual ford keeps the central iron island contestable and mirrors the navigation portal.
-    for (int32 Stone = -6; Stone <= 6; ++Stone)
+    // The main lane crosses on an old low causeway; the flank lanes retain vulnerable timber bridges.
+    const float CausewayX = RiverXAt(Ashen::WorldLayout::CentralCrossingY);
+    const FVector2D CausewayStart(CausewayX - RiverWidth * 0.66f, Ashen::WorldLayout::CentralCrossingY);
+    const FVector2D CausewayEnd(CausewayX + RiverWidth * 0.66f, Ashen::WorldLayout::CentralCrossingY);
+    AddFlatSegment(Roadbed, CausewayStart, CausewayEnd, 184.0f, 10.0f, 10.0f);
+    AddFlatSegment(RoadStones, CausewayStart, CausewayEnd, 154.0f, 8.0f, 15.0f);
+    for (const float Side : {-1.0f, 1.0f})
     {
-        const float Offset = static_cast<float>(Stone);
-        RoadStones->AddInstance(
-            FTransform(FRotator(0.0f, static_cast<float>((Stone * 17) % 13), 0.0f),
-                       FVector(RiverCenterX + Offset * 25.0f,
-                               Ashen::WorldLayout::CentralCrossingY + static_cast<float>(Stone % 2) * 9.0f, 12.0f),
-                       FVector(0.22f, 0.66f + static_cast<float>((Stone + 6) % 3) * 0.08f, 0.10f)));
+        for (const float Bank : {-1.0f, 1.0f})
+        {
+            const FVector Marker(CausewayX + Side * RiverWidth * 0.61f,
+                                 Ashen::WorldLayout::CentralCrossingY + Bank * 103.0f, 40.0f);
+            RitualStones->AddInstance(FTransform(FRotator(0.0f, Side * Bank * 12.0f, 0.0f), Marker,
+                                                 FVector(0.16f, 0.16f, 0.52f)));
+        }
     }
 }
 
@@ -670,7 +741,7 @@ void AAshenArena::BuildVegetation()
     for (int32 Index = 0; Index < 205; ++Index)
     {
         const FVector2D Point(Random.FRandRange(90.0f, MapWidth - 90.0f), Random.FRandRange(90.0f, MapHeight - 90.0f));
-        if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverCenterX) < 230.0f)
+        if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverXAt(Point.Y)) < 230.0f)
         {
             continue;
         }
@@ -783,7 +854,7 @@ void AAshenArena::BuildVegetation()
     for (int32 Index = 0; Index < 520; ++Index)
     {
         const FVector2D Point(Random.FRandRange(45.0f, MapWidth - 45.0f), Random.FRandRange(45.0f, MapHeight - 45.0f));
-        if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverCenterX) < 175.0f)
+        if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverXAt(Point.Y)) < 175.0f)
         {
             continue;
         }
@@ -797,7 +868,7 @@ void AAshenArena::BuildVegetation()
     for (int32 Index = 0; Index < 70; ++Index)
     {
         const FVector2D Point(Random.FRandRange(60.0f, MapWidth - 60.0f), Random.FRandRange(60.0f, MapHeight - 60.0f));
-        if (IsInGameplayClearing(Point))
+        if (IsInGameplayClearing(Point) || FMath::Abs(Point.X - RiverXAt(Point.Y)) < 190.0f)
         {
             continue;
         }
@@ -812,7 +883,22 @@ void AAshenArena::BuildVegetation()
 void AAshenArena::BuildLandmarks()
 {
     FRandomStream Random(0xB1AC4F0D);
-    for (int32 Index = 0; Index < 92; ++Index)
+    // Blackridge is one continuous landform with a readable cliff spine, not a loose boulder field.
+    const TArray<FVector2D> RidgeSpine{{1'030.0f, 770.0f}, {1'150.0f, 805.0f}, {1'275.0f, 830.0f},
+                                       {1'405.0f, 850.0f}, {1'535.0f, 875.0f}, {1'665.0f, 905.0f},
+                                       {1'790.0f, 940.0f}, {1'900.0f, 980.0f}};
+    for (int32 Index = 0; Index < RidgeSpine.Num(); ++Index)
+    {
+        const FVector2D Point = RidgeSpine[Index];
+        const float Scale = 1.42f + static_cast<float>(Index % 3) * 0.20f;
+        MountainRocks->AddInstance(
+            FTransform(FRotator(Random.FRandRange(-7.0f, 7.0f), 18.0f + Index * 7.0f,
+                                Random.FRandRange(-7.0f, 7.0f)),
+                       FVector(Point.X, Point.Y, TerrainHeightAt(Point.X, Point.Y) + Scale * 42.0f),
+                       FVector(Scale * 1.24f, Scale * 0.72f, Scale * Random.FRandRange(0.82f, 1.08f))));
+    }
+
+    for (int32 Index = 0; Index < 38; ++Index)
     {
         const FVector2D Point(Random.FRandRange(880.0f, 2'040.0f), Random.FRandRange(390.0f, 1'300.0f));
         const float MountainMask = FMath::Square((Point.X - 1'440.0f) / 660.0f) +
@@ -822,12 +908,13 @@ void AAshenArena::BuildLandmarks()
             continue;
         }
 
-        const float Scale = Random.FRandRange(0.55f, 1.35f);
+        const float Scale = Random.FRandRange(0.34f, 0.82f);
         MountainRocks->AddInstance(
-            FTransform(FRotator(Random.FRandRange(-18.0f, 18.0f), Random.FRandRange(0.0f, 180.0f),
-                                Random.FRandRange(-13.0f, 13.0f)),
-                       FVector(Point.X, Point.Y, TerrainHeightAt(Point.X, Point.Y) + Scale * 34.0f),
-                       FVector(Scale, Scale * Random.FRandRange(0.55f, 0.90f), Scale * Random.FRandRange(0.42f, 0.82f))));
+            FTransform(FRotator(Random.FRandRange(-15.0f, 15.0f), Random.FRandRange(0.0f, 180.0f),
+                                Random.FRandRange(-10.0f, 10.0f)),
+                       FVector(Point.X, Point.Y, TerrainHeightAt(Point.X, Point.Y) + Scale * 28.0f),
+                       FVector(Scale, Scale * Random.FRandRange(0.60f, 0.88f),
+                               Scale * Random.FRandRange(0.42f, 0.72f))));
     }
 
     // Two concealed iron adits make the mountain route valuable without opening a free path into either base.
@@ -843,7 +930,7 @@ void AAshenArena::BuildLandmarks()
         AddCylinderBetween(MineTimbers, Right, Right + FVector(0.0f, 0.0f, 112.0f), 8.0f);
         AddCylinderBetween(MineTimbers, Left + FVector(0.0f, 0.0f, 106.0f),
                            Right + FVector(0.0f, 0.0f, 106.0f), 9.0f);
-        for (int32 RockIndex = 0; RockIndex < 6; ++RockIndex)
+        for (int32 RockIndex = 0; RockIndex < 3; ++RockIndex)
         {
             const float Side = RockIndex % 2 == 0 ? -1.0f : 1.0f;
             MountainRocks->AddInstance(
@@ -868,31 +955,29 @@ void AAshenArena::BuildLandmarks()
         }
     }
 
-    for (int32 Index = 0; Index < 12; ++Index)
+    // The Drowned Wayshrine sits off the main lane; no ritual geometry intersects a crossing.
+    const FVector2D Shrine(RiverXAt(Ashen::WorldLayout::CenterY) + 330.0f,
+                           Ashen::WorldLayout::CenterY - 310.0f);
+    const float ShrineGround = TerrainHeightAt(Shrine.X, Shrine.Y);
+    for (int32 Index = 0; Index < 4; ++Index)
     {
-        const float Angle = 2.0f * PI * static_cast<float>(Index) / 12.0f;
-        const FVector Position(RiverCenterX + FMath::Cos(Angle) * 205.0f,
-                               Ashen::WorldLayout::CenterY + FMath::Sin(Angle) * 135.0f, 48.0f);
+        const float Angle = 2.0f * PI * static_cast<float>(Index) / 4.0f;
+        const FVector Position(Shrine.X + FMath::Cos(Angle) * 72.0f, Shrine.Y + FMath::Sin(Angle) * 54.0f,
+                               ShrineGround + 35.0f);
         RitualStones->AddInstance(
-            FTransform({0.0f, FMath::RadiansToDegrees(Angle), 0.0f}, Position, {0.25f, 0.25f, 0.95f}));
+            FTransform(FRotator(0.0f, FMath::RadiansToDegrees(Angle), 0.0f), Position, FVector(0.16f, 0.16f, 0.58f)));
     }
-
-    for (const float Yaw : {0.0f, 120.0f, 240.0f})
-    {
-        const FVector Direction = FRotator(0.0f, Yaw, 0.0f).RotateVector(FVector::ForwardVector);
-        const FVector Side = FVector::CrossProduct(FVector::UpVector, Direction);
-        const FVector Center(RiverCenterX, Ashen::WorldLayout::CenterY, 18.0f);
-        const FVector Left = Center - Side * 106.0f + Direction * 24.0f;
-        const FVector Right = Center + Side * 106.0f + Direction * 24.0f;
-        AddCylinderBetween(MythicArches, Left, Left + FVector(0.0f, 0.0f, 116.0f), 9.0f);
-        AddCylinderBetween(MythicArches, Right, Right + FVector(0.0f, 0.0f, 116.0f), 9.0f);
-        AddCylinderBetween(MythicArches, Left + FVector(0.0f, 0.0f, 116.0f), Right + FVector(0.0f, 0.0f, 116.0f), 8.0f);
-    }
+    MythicArches->AddInstance(FTransform(FRotator(0.0f, 18.0f, -4.0f),
+                                         FVector(Shrine.X - 44.0f, Shrine.Y, ShrineGround + 55.0f),
+                                         FVector(0.36f, 0.30f, 1.04f)));
+    MythicArches->AddInstance(FTransform(FRotator(0.0f, -12.0f, 6.0f),
+                                         FVector(Shrine.X + 46.0f, Shrine.Y + 8.0f, ShrineGround + 48.0f),
+                                         FVector(0.32f, 0.28f, 0.92f)));
     BrazierBowls->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 44.0f),
+        FTransform(FRotator::ZeroRotator, FVector(Shrine.X, Shrine.Y, ShrineGround + 29.0f),
                    FVector(0.36f, 0.36f, 0.20f)));
     EmberCores->AddInstance(
-        FTransform(FRotator::ZeroRotator, FVector(RiverCenterX, Ashen::WorldLayout::CenterY, 66.0f),
+        FTransform(FRotator::ZeroRotator, FVector(Shrine.X, Shrine.Y, ShrineGround + 51.0f),
                    FVector(0.19f, 0.19f, 0.25f)));
 }
 
@@ -909,8 +994,8 @@ void AAshenArena::BeginPlay()
                                         260.0f, 54.0f, 0.17f, 0.14f);
     const auto Mud = SurfaceStyle({0.095f, 0.066f, 0.040f}, {0.17f, 0.12f, 0.070f}, {0.25f, 0.205f, 0.135f}, 0.94f,
                                   220.0f, 42.0f, 0.22f, 0.18f);
-    const auto RoadStone = SurfaceStyle({0.145f, 0.145f, 0.128f}, {0.25f, 0.235f, 0.20f}, {0.35f, 0.32f, 0.255f}, 0.91f,
-                                        120.0f, 30.0f, 0.22f, 0.24f);
+    const auto RoadStone = SurfaceStyle({0.090f, 0.088f, 0.076f}, {0.155f, 0.145f, 0.118f},
+                                        {0.225f, 0.205f, 0.160f}, 0.94f, 120.0f, 30.0f, 0.20f, 0.20f);
     const auto WetStone = SurfaceStyle({0.075f, 0.086f, 0.080f}, {0.145f, 0.15f, 0.135f}, {0.23f, 0.23f, 0.195f}, 0.80f,
                                        135.0f, 32.0f, 0.19f, 0.34f);
     const auto WeatheredWood = SurfaceStyle({0.090f, 0.047f, 0.024f}, {0.17f, 0.095f, 0.045f}, {0.28f, 0.18f, 0.095f},
@@ -945,7 +1030,7 @@ void AAshenArena::BeginPlay()
         RoadRuts, this,
         SurfaceStyle({0.035f, 0.022f, 0.016f}, {0.07f, 0.045f, 0.028f}, {0.11f, 0.075f, 0.045f}, 0.72f),
         EAshenEnvironmentSurface::Mud);
-    Ashen::Materials::ApplySurface(RiverBanks, this, WetStone, EAshenEnvironmentSurface::WetStone);
+    Ashen::Materials::ApplySurface(RiverBanks, this, Mud, EAshenEnvironmentSurface::Mud);
     Ashen::Materials::ApplySurface(Reeds, this, Pine, EAshenEnvironmentSurface::Pine);
     Ashen::Materials::ApplySurface(BridgeTimbers, this, WeatheredWood,
                                    EAshenEnvironmentSurface::WeatheredWood);

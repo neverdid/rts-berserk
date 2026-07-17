@@ -11,6 +11,14 @@
     "listing_version_reviewed": "2026-06-17",
     "raw_distribution": "private-collaborators-only"
   },
+  "recommended_acquisitions": [
+    { "name": "Project Titan", "listing_id": "c05aac82-4c1a-4e42-96b3-be668dc40fca", "kind": "source_project", "quality": null },
+    { "name": "Soil Mud", "listing_id": "c33cb641-e9bd-4966-adc3-c0b5a937ab12", "kind": "surface", "quality": "medium_2k", "target": "Mud" },
+    { "name": "Forest Floor", "listing_id": "3463d6dc-43fb-4bb2-9d54-9590cf23257e", "kind": "surface", "quality": "medium_2k", "target": "Moor" },
+    { "name": "Mossy Forest Floor", "listing_id": "e75504fd-9631-4bf2-b5de-4e0b04f59cef", "kind": "surface", "quality": "medium_2k", "target": "MoorPatch" },
+    { "name": "Castle Cobblestone", "listing_id": "3d983be3-0574-4cc8-baf1-fd148820ed7d", "kind": "surface", "quality": "medium_2k", "target": "RoadStone" },
+    { "name": "Weathered Wooden Planks", "listing_id": "943bdc90-e4c2-4a63-8ca0-1b9556f933dd", "kind": "surface", "quality": "medium_2k", "target": "WeatheredWood" }
+  ],
   "priority_meshes": [
     { "slot": "RoadStone", "path": "Meshes/Road/SM_RoadStone_A", "source_asset": null },
     { "slot": "RiverBank", "path": "Meshes/Rock/SM_RiverBank_A", "source_asset": null },
