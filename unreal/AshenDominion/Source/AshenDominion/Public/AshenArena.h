@@ -88,6 +88,18 @@ private:
     TObjectPtr<UInstancedStaticMeshComponent> Rocks;
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
+    TObjectPtr<UInstancedStaticMeshComponent> MountainRocks;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
+    TObjectPtr<UInstancedStaticMeshComponent> MineMouths;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
+    TObjectPtr<UInstancedStaticMeshComponent> MineTimbers;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
+    TObjectPtr<UInstancedStaticMeshComponent> ForestRoots;
+
+    UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
     TObjectPtr<UInstancedStaticMeshComponent> HumanWalls;
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
@@ -119,9 +131,6 @@ private:
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
     TObjectPtr<UInstancedStaticMeshComponent> BonePalisade;
-
-    UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
-    TObjectPtr<UInstancedStaticMeshComponent> BoundaryMonoliths;
 
     UPROPERTY(VisibleAnywhere, Category = "Ashen|World")
     TObjectPtr<UInstancedStaticMeshComponent> RitualStones;

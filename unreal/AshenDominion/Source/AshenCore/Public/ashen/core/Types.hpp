@@ -266,13 +266,19 @@ struct SimulationConfig {
   MatchMode mode{MatchMode::Skirmish};
   FactionId player_one_faction{FactionId::Compact};
   FactionId player_two_faction{FactionId::Ascendancy};
-  Vec2 map_size{world(1'920, 1'080)};
+  Vec2 map_size{world(2'400, 1'400)};
   std::int32_t navigation_cell_size{world(36, 0).x};
   std::vector<NavigationObstacle> navigation_obstacles{
-      {world(875, 0), world(1'045, 285)},
-      {world(875, 395), world(1'045, 500)},
-      {world(875, 580), world(1'045, 685)},
-      {world(875, 795), world(1'045, 1'080)},
+      // River banks leave three broad, readable crossings.
+      {world(1'115, 0), world(1'285, 315)},
+      {world(1'115, 445), world(1'285, 635)},
+      {world(1'115, 765), world(1'285, 955)},
+      {world(1'115, 1'085), world(1'285, 1'400)},
+      // The northwest mountain and southeast Gravewood are rotationally balanced.
+      {world(500, 250), world(820, 480)},
+      {world(650, 370), world(930, 610)},
+      {world(1'580, 920), world(1'900, 1'150)},
+      {world(1'470, 790), world(1'750, 1'030)},
   };
   bool seed_starting_forces{true};
 };

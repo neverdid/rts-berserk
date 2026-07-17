@@ -1,7 +1,9 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AshenArena.h"
+#include "AshenWorldLayout.h"
 
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
@@ -21,7 +23,7 @@ bool FAshenCoreBootsInUnrealTest::RunTest(const FString &Parameters)
     ashen::core::Simulation Second{};
 
     TestEqual(TEXT("Default match seeds ten entities"), static_cast<int32>(First.entities().size()), 10);
-    TestEqual(TEXT("Default match seeds three resource fields"), static_cast<int32>(First.resources().size()), 3);
+    TestEqual(TEXT("Default match seeds seven resource fields"), static_cast<int32>(First.resources().size()), 7);
     TestEqual(TEXT("Default match seeds two contestable relics"), static_cast<int32>(First.control_points().size()), 2);
 
     First.run(240);
@@ -44,11 +46,11 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString &Parameters)
     Config.seed_starting_forces = false;
     Simulation First{Config};
     Simulation Second{Config};
-    const EntityId FirstUnit = First.spawn_entity(PlayerId::One, EntityType::Worker, world(760, 100));
-    const EntityId SecondUnit = Second.spawn_entity(PlayerId::One, EntityType::Worker, world(760, 100));
+    const EntityId FirstUnit = First.spawn_entity(PlayerId::One, EntityType::Worker, world(1'000, 700));
+    const EntityId SecondUnit = Second.spawn_entity(PlayerId::One, EntityType::Worker, world(1'000, 700));
 
     const Command CrossRiver{
-        .player = PlayerId::One, .type = CommandType::AttackMove, .entities = {FirstUnit}, .target = world(1'160, 100)};
+        .player = PlayerId::One, .type = CommandType::AttackMove, .entities = {FirstUnit}, .target = world(1'400, 700)};
     Command MirroredCrossRiver = CrossRiver;
     MirroredCrossRiver.entities = {SecondUnit};
     TestTrue(TEXT("Attack-move accepts a destination across the river"), First.execute_now(CrossRiver).ok);
@@ -57,7 +59,7 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString &Parameters)
     const Command QueuedMove{.player = PlayerId::One,
                              .type = CommandType::Move,
                              .entities = {FirstUnit},
-                             .target = world(1'160, 220),
+                             .target = world(1'480, 700),
                              .queue = true};
     Command MirroredQueuedMove = QueuedMove;
     MirroredQueuedMove.entities = {SecondUnit};
@@ -67,7 +69,7 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString &Parameters)
     First.run(600);
     Second.run(600);
     TestTrue(TEXT("Unit completes both orders"),
-             First.find_entity(FirstUnit) != nullptr && First.find_entity(FirstUnit)->position == world(1'160, 220));
+             First.find_entity(FirstUnit) != nullptr && First.find_entity(FirstUnit)->position == world(1'480, 700));
     TestTrue(TEXT("Navigation and queued orders remain deterministic"), First.state_hash() == Second.state_hash());
     return true;
 }
@@ -101,6 +103,21 @@ bool FAshenWorldVisualFoundationTest::RunTest(const FString &Parameters)
     TestFalse(TEXT("Interaction plane never renders over authored terrain"),
               InteractionGround != nullptr && InteractionGround->IsVisible());
 
+    const UInstancedStaticMeshComponent *Mountain =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MountainRocks")));
+    const UInstancedStaticMeshComponent *Mines =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MineMouths")));
+    const UInstancedStaticMeshComponent *Gravewood =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("ForestRoots")));
+    TestTrue(TEXT("Northwest massif owns a substantial rock silhouette"),
+             Mountain != nullptr && Mountain->GetInstanceCount() >= 24);
+    TestEqual(TEXT("The concealed route owns two mine entrances"), Mines != nullptr ? Mines->GetInstanceCount() : 0, 2);
+    TestTrue(TEXT("Gravewood owns a dedicated root layer"), Gravewood != nullptr && Gravewood->GetInstanceCount() > 0);
+    TestNull(TEXT("Legacy perimeter monoliths stay removed"),
+             Arena->GetDefaultSubobjectByName(TEXT("BoundaryMonoliths")));
+    TestEqual(TEXT("Expanded battlefield width remains authoritative"), Ashen::WorldLayout::Width, 4'800.0f);
+    TestEqual(TEXT("Expanded battlefield height remains authoritative"), Ashen::WorldLayout::Height, 2'800.0f);
+
     const UMaterialInterface *Surface =
         LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Art/Materials/M_VowfallSurface.M_VowfallSurface"));
     const UMaterialInterface *Water =
@@ -120,6 +137,7 @@ bool FAshenCoreCompetitiveSliceInUnrealTest::RunTest(const FString &Parameters)
 
     SimulationConfig Config{};
     Config.seed_starting_forces = false;
+    Config.navigation_obstacles.clear();
     Simulation Match{Config};
     const EntityId Keep = Match.spawn_entity(PlayerId::One, EntityType::Command, world(200, 400));
     const EntityId Worker = Match.spawn_entity(PlayerId::One, EntityType::Worker, world(350, 400));

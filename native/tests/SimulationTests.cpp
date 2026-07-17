@@ -196,13 +196,12 @@ void state_hash_covers_queued_command_payloads() {
 
 void navigation_routes_through_the_visible_bridge() {
   auto simulation = sandbox();
-  const auto unit = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(760, 100));
-  const auto target = world(1'160, 100);
+  const auto unit = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(1'000, 700));
+  const auto target = world(1'400, 700);
   CHECK(simulation.execute_now(
             Command{.player = PlayerId::One, .type = CommandType::Move, .entities = {unit}, .target = target})
             .ok);
 
-  std::int32_t highest_y = 0;
   bool crossed_river = false;
   for (int tick = 0; tick < 500; ++tick) {
     simulation.step();
@@ -211,20 +210,89 @@ void navigation_routes_through_the_visible_bridge() {
     if (entity == nullptr) {
       break;
     }
-    highest_y = std::max(highest_y, entity->position.y);
-    if (entity->position.x >= world(875, 0).x && entity->position.x <= world(1'045, 0).x) {
+    if (entity->position.x >= world(1'115, 0).x && entity->position.x <= world(1'285, 0).x) {
       crossed_river = true;
-      CHECK(entity->position.y > world(285, 0).x && entity->position.y < world(395, 0).x);
+      CHECK(entity->position.y > world(635, 0).x && entity->position.y < world(765, 0).x);
     }
   }
 
   CHECK(crossed_river);
-  CHECK(highest_y > world(285, 0).x);
   CHECK(simulation.find_entity(unit)->position == target);
 }
 
-void formation_orders_assign_distinct_non_overlapping_slots() {
+void strategic_flanks_are_distinct_and_navigable() {
   auto simulation = sandbox();
+  const auto mountain_scout =
+      simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(300, 700));
+  const auto gravewood_scout =
+      simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(2'100, 700));
+
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {mountain_scout},
+                                       .target = world(620, 170)})
+            .ok);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {mountain_scout},
+                                       .target = world(1'500, 380),
+                                       .queue = true})
+            .ok);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {gravewood_scout},
+                                       .target = world(1'780, 1'230)})
+            .ok);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {gravewood_scout},
+                                       .target = world(900, 1'020),
+                                       .queue = true})
+            .ok);
+
+  bool used_mountain_pass = false;
+  bool used_north_crossing = false;
+  bool entered_gravewood = false;
+  bool used_south_crossing = false;
+  for (int tick = 0; tick < 2'400; ++tick) {
+    simulation.step();
+    const auto* north = simulation.find_entity(mountain_scout);
+    const auto* south = simulation.find_entity(gravewood_scout);
+    CHECK(north != nullptr);
+    CHECK(south != nullptr);
+    if (north == nullptr || south == nullptr) {
+      break;
+    }
+
+    used_mountain_pass = used_mountain_pass ||
+                         (north->position.x >= world(500, 0).x &&
+                          north->position.x <= world(900, 0).x && north->position.y < world(250, 0).x);
+    used_north_crossing = used_north_crossing ||
+                          (north->position.x >= world(1'115, 0).x &&
+                           north->position.x <= world(1'285, 0).x &&
+                           north->position.y > world(315, 0).x && north->position.y < world(445, 0).x);
+    entered_gravewood = entered_gravewood ||
+                        (south->position.x >= world(1'580, 0).x &&
+                         south->position.x <= world(1'900, 0).x && south->position.y > world(1'150, 0).x);
+    used_south_crossing = used_south_crossing ||
+                          (south->position.x >= world(1'115, 0).x &&
+                           south->position.x <= world(1'285, 0).x &&
+                           south->position.y > world(955, 0).x && south->position.y < world(1'085, 0).x);
+  }
+
+  CHECK(used_mountain_pass);
+  CHECK(used_north_crossing);
+  CHECK(entered_gravewood);
+  CHECK(used_south_crossing);
+  CHECK(simulation.find_entity(mountain_scout)->position == world(1'500, 380));
+  CHECK(simulation.find_entity(gravewood_scout)->position == world(900, 1'020));
+}
+
+void formation_orders_assign_distinct_non_overlapping_slots() {
+  SimulationConfig config{};
+  config.seed_starting_forces = false;
+  config.navigation_obstacles.clear();
+  Simulation simulation{config};
   std::vector<EntityId> units;
   for (int index = 0; index < 6; ++index) {
     units.push_back(simulation.spawn_entity(PlayerId::One, EntityType::Worker,
@@ -567,6 +635,7 @@ int main() {
   run_test("same-tick commands have stable sequence order", same_tick_commands_have_stable_sequence_order);
   run_test("state hash covers queued command payloads", state_hash_covers_queued_command_payloads);
   run_test("navigation routes through the visible bridge", navigation_routes_through_the_visible_bridge);
+  run_test("strategic flanks are distinct and navigable", strategic_flanks_are_distinct_and_navigable);
   run_test("formation orders assign distinct non-overlapping slots",
            formation_orders_assign_distinct_non_overlapping_slots);
   run_test("shift-queued orders execute in sequence", shift_queued_orders_execute_in_sequence);
