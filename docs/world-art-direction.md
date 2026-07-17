@@ -30,6 +30,22 @@ landscapes are the primary visual references.
 - Lighting preserves shadow shape without crushing information. Faction accents are local light, never a
   full-screen color grade.
 
+## Battlefield geography
+
+- Blackridge occupies the northwest. It is a single mine-bearing ridge with a visible cliff spine, two
+  concealed adits, and a rear road that supports ambushes. Loose scree supports the silhouette but never
+  substitutes for the landform.
+- Gravewood occupies the southeast. Its dense canopy, roots, dead trees, and two spirit caches are the
+  rotational gameplay counterpart to Blackridge, while its visual language remains organic rather than rocky.
+- The river enters beyond the north terrain overscan and leaves beyond the south overscan. The water mesh,
+  terrain cut, bank line, and crossing centers use the same curve.
+- The north and south flank lanes cross on timber bridges. The main lane crosses on a broad old stone
+  causeway. Bank dressing, reeds, ruins, and shrine props maintain a clear radius around all three crossings.
+- Roads are continuous between each base gate and crossing. A visible break is allowed only when an authored
+  bridge, ford, collapse, or deliberate terrain transition explains it.
+- The Drowned Wayshrine sits beside the central route, never inside it. Its ruins are an orientation landmark,
+  not an obstacle or an ambiguous cluster of stretched props.
+
 ## Faction shape language
 
 **Cinder Compact**

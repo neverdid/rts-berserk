@@ -178,7 +178,7 @@ void AAshenHUD::DrawBattleHud(const AAshenPlayerController& Controller,
     DrawRect(Ink, TopX, TopY, TopWidth, 72.0f);
     DrawRect(Bronze, TopX, TopY, 4.0f, 72.0f);
     DrawText(TEXT("VOWFALL"), Bone, 30.0f, 25.0f, GEngine->GetMediumFont(), 1.0f, false);
-    DrawText(bCompact ? TEXT("CINDER COMPACT") : TEXT("CINDER COMPACT  //  BLACK-IRON FORD"),
+    DrawText(bCompact ? TEXT("CINDER COMPACT") : TEXT("CINDER COMPACT  //  DROWNED CAUSEWAY"),
              DimBone, 30.0f, 54.0f, GEngine->GetSmallFont(), 0.76f, false);
 
     const float MetricsX = FMath::Max(bCompact ? 242.0f : 360.0f, Width - (bCompact ? 410.0f : 520.0f));

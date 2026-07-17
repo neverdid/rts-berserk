@@ -118,6 +118,9 @@ $script = (Resolve-Path `
   "-ExecutePythonScript=$script" -unattended -nop4 -nullrhi -nosplash -NoSound
 ```
 
+Set `VOWFALL_ENVIRONMENT_ASSETS` to a semicolon-separated list of manifest-relative mesh paths before
+running the command to rebuild only selected assets. Leave it unset to reproduce all 33 meshes.
+
 Capture the whole battlefield for visual regression review:
 
 ```powershell
