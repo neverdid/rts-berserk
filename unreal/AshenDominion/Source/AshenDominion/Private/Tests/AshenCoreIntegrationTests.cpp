@@ -1,15 +1,21 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "AshenArena.h"
+#include "AshenWorldLayout.h"
+
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
+#include "ProceduralMeshComponent.h"
+#include "UObject/UObjectGlobals.h"
 #include "ashen/core/Catalog.hpp"
 #include "ashen/core/Simulation.hpp"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FAshenCoreBootsInUnrealTest,
-    "Ashen.Core.BootsInUnreal",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreBootsInUnrealTest, "Ashen.Core.BootsInUnreal",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FAshenCoreBootsInUnrealTest::RunTest(const FString& Parameters)
+bool FAshenCoreBootsInUnrealTest::RunTest(const FString &Parameters)
 {
     static_cast<void>(Parameters);
 
@@ -17,9 +23,8 @@ bool FAshenCoreBootsInUnrealTest::RunTest(const FString& Parameters)
     ashen::core::Simulation Second{};
 
     TestEqual(TEXT("Default match seeds ten entities"), static_cast<int32>(First.entities().size()), 10);
-    TestEqual(TEXT("Default match seeds three resource fields"), static_cast<int32>(First.resources().size()), 3);
-    TestEqual(TEXT("Default match seeds two contestable relics"),
-              static_cast<int32>(First.control_points().size()), 2);
+    TestEqual(TEXT("Default match seeds seven resource fields"), static_cast<int32>(First.resources().size()), 7);
+    TestEqual(TEXT("Default match seeds two contestable relics"), static_cast<int32>(First.control_points().size()), 2);
 
     First.run(240);
     Second.run(240);
@@ -29,12 +34,10 @@ bool FAshenCoreBootsInUnrealTest::RunTest(const FString& Parameters)
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FAshenCoreNavigationAndOrdersTest,
-    "Ashen.Core.NavigationAndOrders",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreNavigationAndOrdersTest, "Ashen.Core.NavigationAndOrders",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString& Parameters)
+bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString &Parameters)
 {
     static_cast<void>(Parameters);
     using namespace ashen::core;
@@ -43,13 +46,11 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString& Parameters)
     Config.seed_starting_forces = false;
     Simulation First{Config};
     Simulation Second{Config};
-    const EntityId FirstUnit = First.spawn_entity(PlayerId::One, EntityType::Worker, world(760, 100));
-    const EntityId SecondUnit = Second.spawn_entity(PlayerId::One, EntityType::Worker, world(760, 100));
+    const EntityId FirstUnit = First.spawn_entity(PlayerId::One, EntityType::Worker, world(1'000, 700));
+    const EntityId SecondUnit = Second.spawn_entity(PlayerId::One, EntityType::Worker, world(1'000, 700));
 
-    const Command CrossRiver{.player = PlayerId::One,
-                             .type = CommandType::AttackMove,
-                             .entities = {FirstUnit},
-                             .target = world(1'160, 100)};
+    const Command CrossRiver{
+        .player = PlayerId::One, .type = CommandType::AttackMove, .entities = {FirstUnit}, .target = world(1'400, 700)};
     Command MirroredCrossRiver = CrossRiver;
     MirroredCrossRiver.entities = {SecondUnit};
     TestTrue(TEXT("Attack-move accepts a destination across the river"), First.execute_now(CrossRiver).ok);
@@ -58,7 +59,7 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString& Parameters)
     const Command QueuedMove{.player = PlayerId::One,
                              .type = CommandType::Move,
                              .entities = {FirstUnit},
-                             .target = world(1'160, 220),
+                             .target = world(1'480, 700),
                              .queue = true};
     Command MirroredQueuedMove = QueuedMove;
     MirroredQueuedMove.entities = {SecondUnit};
@@ -68,23 +69,75 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString& Parameters)
     First.run(600);
     Second.run(600);
     TestTrue(TEXT("Unit completes both orders"),
-             First.find_entity(FirstUnit) != nullptr && First.find_entity(FirstUnit)->position == world(1'160, 220));
+             First.find_entity(FirstUnit) != nullptr && First.find_entity(FirstUnit)->position == world(1'480, 700));
     TestTrue(TEXT("Navigation and queued orders remain deterministic"), First.state_hash() == Second.state_hash());
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FAshenCoreCompetitiveSliceInUnrealTest,
-    "Ashen.Core.CompetitiveVerticalSlice",
-    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenWorldVisualFoundationTest, "Ashen.World.VisualFoundation",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FAshenCoreCompetitiveSliceInUnrealTest::RunTest(const FString& Parameters)
+bool FAshenWorldVisualFoundationTest::RunTest(const FString &Parameters)
+{
+    static_cast<void>(Parameters);
+
+    AAshenArena *Arena = GetMutableDefault<AAshenArena>();
+    TestNotNull(TEXT("Arena class default object is available"), Arena);
+    if (Arena == nullptr)
+    {
+        return false;
+    }
+
+    const UProceduralMeshComponent *Terrain =
+        Cast<UProceduralMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("TerrainGeometry")));
+    TestNotNull(TEXT("Arena owns its sculpted terrain component"), Terrain);
+    TestTrue(TEXT("Visual terrain cannot intercept deterministic RTS input"),
+             Terrain != nullptr && Terrain->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+
+    const UStaticMeshComponent *InteractionGround =
+        Cast<UStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("Ground")));
+    TestNotNull(TEXT("Arena retains an invisible interaction plane"), InteractionGround);
+    TestTrue(TEXT("Interaction plane blocks world traces"),
+             InteractionGround != nullptr &&
+                 InteractionGround->GetCollisionEnabled() == ECollisionEnabled::QueryAndPhysics);
+    TestFalse(TEXT("Interaction plane never renders over authored terrain"),
+              InteractionGround != nullptr && InteractionGround->IsVisible());
+
+    const UInstancedStaticMeshComponent *Mountain =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MountainRocks")));
+    const UInstancedStaticMeshComponent *Mines =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("MineMouths")));
+    const UInstancedStaticMeshComponent *Gravewood =
+        Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("ForestRoots")));
+    TestTrue(TEXT("Northwest massif owns a substantial rock silhouette"),
+             Mountain != nullptr && Mountain->GetInstanceCount() >= 24);
+    TestEqual(TEXT("The concealed route owns two mine entrances"), Mines != nullptr ? Mines->GetInstanceCount() : 0, 2);
+    TestTrue(TEXT("Gravewood owns a dedicated root layer"), Gravewood != nullptr && Gravewood->GetInstanceCount() > 0);
+    TestNull(TEXT("Legacy perimeter monoliths stay removed"),
+             Arena->GetDefaultSubobjectByName(TEXT("BoundaryMonoliths")));
+    TestEqual(TEXT("Expanded battlefield width remains authoritative"), Ashen::WorldLayout::Width, 4'800.0f);
+    TestEqual(TEXT("Expanded battlefield height remains authoritative"), Ashen::WorldLayout::Height, 2'800.0f);
+
+    const UMaterialInterface *Surface =
+        LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Art/Materials/M_VowfallSurface.M_VowfallSurface"));
+    const UMaterialInterface *Water =
+        LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Art/Materials/M_VowfallWater.M_VowfallWater"));
+    TestNotNull(TEXT("Painterly surface master material is available to the project"), Surface);
+    TestNotNull(TEXT("Water master material is available to the project"), Water);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreCompetitiveSliceInUnrealTest, "Ashen.Core.CompetitiveVerticalSlice",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreCompetitiveSliceInUnrealTest::RunTest(const FString &Parameters)
 {
     static_cast<void>(Parameters);
     using namespace ashen::core;
 
     SimulationConfig Config{};
     Config.seed_starting_forces = false;
+    Config.navigation_obstacles.clear();
     Simulation Match{Config};
     const EntityId Keep = Match.spawn_entity(PlayerId::One, EntityType::Command, world(200, 400));
     const EntityId Worker = Match.spawn_entity(PlayerId::One, EntityType::Worker, world(350, 400));
@@ -99,8 +152,8 @@ bool FAshenCoreCompetitiveSliceInUnrealTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Worker accepts a valid barracks site"), Match.execute_now(Build).ok);
     Match.run(380);
 
-    const Entity* Barracks = nullptr;
-    for (const Entity& Candidate : Match.entities())
+    const Entity *Barracks = nullptr;
+    for (const Entity &Candidate : Match.entities())
     {
         if (Candidate.owner == PlayerId::One && Candidate.type == EntityType::Barracks)
         {

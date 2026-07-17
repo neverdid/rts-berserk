@@ -15,8 +15,9 @@ class ASHENDOMINION_API AAshenCameraPawn final : public APawn
 public:
     AAshenCameraPawn();
     virtual void Tick(float DeltaSeconds) override;
-    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-    void FocusOn(const FVector& WorldPosition);
+    virtual void SetupPlayerInputComponent(UInputComponent *PlayerInputComponent) override;
+    void FocusOn(const FVector &WorldPosition);
+    void FrameWorld();
 
 private:
     void SetForwardInput(float Value);

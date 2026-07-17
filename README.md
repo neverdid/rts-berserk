@@ -84,6 +84,26 @@ Run the Unreal automation test:
   '-TestExit=Automation Test Queue Empty' -log
 ```
 
+Regenerate the source-controlled world master materials after changing the art pipeline script:
+
+```powershell
+$script = (Resolve-Path `
+  'unreal/AshenDominion/Build/WorldArt/build_world_materials.py').Path.Replace('\', '/')
+& "$env:UE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+  "$PWD\unreal\AshenDominion\AshenDominion.uproject" `
+  "-ExecutePythonScript=$script" -unattended -nop4 -nosplash -NoSound
+```
+
+Capture the whole battlefield for visual regression review:
+
+```powershell
+& "$env:UE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+  "$PWD\unreal\AshenDominion\AshenDominion.uproject" `
+  -game -AshenCaptureWorld -ResX=1280 -ResY=720 -Windowed -RenderOffScreen -NoSound
+```
+
+The image is written to `unreal/AshenDominion/Saved/Screenshots/Automation/World.png`.
+
 ## Portable core
 
 Requirements: a C++20 compiler and CMake 3.24 or newer.

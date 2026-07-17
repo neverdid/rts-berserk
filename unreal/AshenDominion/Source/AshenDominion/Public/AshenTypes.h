@@ -144,7 +144,7 @@ struct FAshenResearchView
     UPROPERTY(BlueprintReadOnly, Category = "Ashen")
     bool bCompleted = false;
 
-    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen", meta = (ScriptName = "is_in_progress"))
     bool bInProgress = false;
 
     UPROPERTY(BlueprintReadOnly, Category = "Ashen")

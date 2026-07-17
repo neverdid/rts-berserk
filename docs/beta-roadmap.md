@@ -35,7 +35,20 @@ Delivered with deterministic TypeScript/C++ parity fixtures, native and Unreal a
 build-order-aware enemy construction and tech, responsive 1280x720 and 800x600 command surfaces, delayed
 render captures, and world-space feedback for construction, capture pressure, fog, resolve, and damage.
 
-## 3. Build the production battlefield - next
+## 3. Build the production battlefield - in progress
+
+Visual foundation delivered:
+
+- Painterly-realism art target, faction shape grammar, and asset intake contract
+- Sculpted overscan terrain, layered world materials, water, roads, bridges, forests, faction
+  fortifications, ritual landmarks, lighting, fog, and capture automation
+- Expanded 4,800 by 2,800 competitive layout with a standard central front, tested mountain and Gravewood
+  rotations, hidden high-risk resources, three river crossings, and natural terrain boundaries
+- Deterministic interaction collision preserved independently from visual terrain
+- Unreal regression coverage for required world assets and collision behavior
+
+Next graphics slice: replace each Engine proxy category with one coherent licensed or custom production
+environment kit, then convert the approved composition to an authored Landscape and spline workflow.
 
 - Replace procedural proxy terrain with an authored competitive map using landscape, roads, bridges,
   river water, forests, cliffs, castles, landmarks, and faction-readable bases

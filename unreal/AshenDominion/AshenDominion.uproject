@@ -22,6 +22,17 @@
     {
       "Name": "AndroidFileServer",
       "Enabled": false
+    },
+    {
+      "Name": "PythonScriptPlugin",
+      "Enabled": true,
+      "TargetAllowList": [
+        "Editor"
+      ]
+    },
+    {
+      "Name": "ProceduralMeshComponent",
+      "Enabled": true
     }
   ]
 }

@@ -3,6 +3,7 @@
 #include "AshenEntityActor.h"
 #include "AshenPlayerController.h"
 #include "AshenSimulationSubsystem.h"
+#include "AshenWorldLayout.h"
 
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -19,8 +20,6 @@ const FLinearColor Bronze(0.78f, 0.43f, 0.10f, 1.0f);
 const FLinearColor Blood(0.58f, 0.035f, 0.045f, 1.0f);
 const FLinearColor Verdigris(0.12f, 0.47f, 0.43f, 1.0f);
 const FLinearColor ValidGreen(0.18f, 0.68f, 0.32f, 1.0f);
-constexpr float WorldWidth = 3'840.0f;
-constexpr float WorldHeight = 2'160.0f;
 
 bool ContainsPoint(const FVector2D& Min, const FVector2D& Max, const FVector2D& Point)
 {
@@ -45,7 +44,7 @@ FString StanceLabel(const EAshenStance Stance)
 void AAshenHUD::DrawHUD()
 {
     Super::DrawHUD();
-    if (Canvas == nullptr || GetWorld() == nullptr || GEngine == nullptr)
+    if (!bShowHUD || Canvas == nullptr || GetWorld() == nullptr || GEngine == nullptr)
     {
         return;
     }
@@ -428,19 +427,26 @@ void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
     const float Width = Canvas->SizeX;
     const float Height = Canvas->SizeY;
     const float MapWidth = FMath::Clamp(Width * 0.235f, 152.0f, 238.0f);
-    const float MapHeight = MapWidth * 0.5625f;
+    const float MapHeight = MapWidth * (Ashen::WorldLayout::Height / Ashen::WorldLayout::Width);
     const float MapX = 20.0f;
     const float MapY = Height - MapHeight - 20.0f;
 
     DrawRect(FLinearColor(0.01f, 0.018f, 0.016f, 0.96f), MapX, MapY, MapWidth, MapHeight);
     DrawRect(FLinearColor(0.035f, 0.075f, 0.055f, 0.8f), MapX + 3.0f, MapY + 3.0f,
              MapWidth - 6.0f, MapHeight - 6.0f);
-    DrawRect(FLinearColor(0.02f, 0.16f, 0.19f, 0.95f), MapX + MapWidth * 0.47f, MapY + 3.0f,
-             MapWidth * 0.06f, MapHeight - 6.0f);
-    DrawRect(FLinearColor(0.32f, 0.24f, 0.13f, 1.0f), MapX + MapWidth * 0.44f,
-             MapY + MapHeight * 0.28f, MapWidth * 0.12f, 3.0f);
-    DrawRect(FLinearColor(0.32f, 0.24f, 0.13f, 1.0f), MapX + MapWidth * 0.44f,
-             MapY + MapHeight * 0.68f, MapWidth * 0.12f, 3.0f);
+    DrawRect(FLinearColor(0.075f, 0.080f, 0.074f, 0.96f), MapX + MapWidth * 0.20f,
+             MapY + MapHeight * 0.10f, MapWidth * 0.19f, MapHeight * 0.31f);
+    DrawRect(FLinearColor(0.018f, 0.052f, 0.027f, 0.98f), MapX + MapWidth * 0.64f,
+             MapY + MapHeight * 0.63f, MapWidth * 0.22f, MapHeight * 0.28f);
+    DrawRect(FLinearColor(0.02f, 0.16f, 0.19f, 0.95f), MapX + MapWidth * 0.465f, MapY + 3.0f,
+             MapWidth * 0.07f, MapHeight - 6.0f);
+    for (const float CrossingY : {Ashen::WorldLayout::NorthCrossingY, Ashen::WorldLayout::CentralCrossingY,
+                                  Ashen::WorldLayout::SouthCrossingY})
+    {
+        DrawRect(FLinearColor(0.32f, 0.24f, 0.13f, 1.0f), MapX + MapWidth * 0.44f,
+                 MapY + MapHeight * (CrossingY / Ashen::WorldLayout::Height) - 1.5f,
+                 MapWidth * 0.12f, 3.0f);
+    }
 
     for (TActorIterator<AAshenEntityActor> It(GetWorld()); It; ++It)
     {
@@ -454,16 +460,22 @@ void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
                                Entity->GetArchetype() == EAshenEntityArchetype::Barracks)
                                   ? 5.0f
                                   : 3.0f;
-        const float DotX = MapX + FMath::Clamp(Position.X / WorldWidth, 0.0f, 1.0f) * MapWidth - DotSize * 0.5f;
-        const float DotY = MapY + FMath::Clamp(Position.Y / WorldHeight, 0.0f, 1.0f) * MapHeight - DotSize * 0.5f;
+        const float DotX = MapX + FMath::Clamp(Position.X / Ashen::WorldLayout::Width, 0.0f, 1.0f) * MapWidth -
+                           DotSize * 0.5f;
+        const float DotY = MapY + FMath::Clamp(Position.Y / Ashen::WorldLayout::Height, 0.0f, 1.0f) * MapHeight -
+                           DotSize * 0.5f;
         DrawRect(Entity->GetOwnerIndex() == 0 ? Bronze : Blood, DotX, DotY, DotSize, DotSize);
     }
 
     for (const FAshenControlPointView& Point : Simulation.GetControlPointViews())
     {
         constexpr float DotSize = 6.0f;
-        const float DotX = MapX + FMath::Clamp(Point.WorldPosition.X / WorldWidth, 0.0f, 1.0f) * MapWidth - 3.0f;
-        const float DotY = MapY + FMath::Clamp(Point.WorldPosition.Y / WorldHeight, 0.0f, 1.0f) * MapHeight - 3.0f;
+        const float DotX = MapX + FMath::Clamp(Point.WorldPosition.X / Ashen::WorldLayout::Width, 0.0f, 1.0f) *
+                                             MapWidth -
+                           3.0f;
+        const float DotY = MapY + FMath::Clamp(Point.WorldPosition.Y / Ashen::WorldLayout::Height, 0.0f, 1.0f) *
+                                             MapHeight -
+                           3.0f;
         const FLinearColor PointColor = Point.OwnerIndex == 0 ? Bronze : Point.OwnerIndex == 1 ? Blood : Bone;
         DrawRect(PointColor, DotX, DotY, DotSize, DotSize);
     }
