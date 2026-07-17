@@ -92,20 +92,21 @@ The first acceptance group is cliff/rock, dead forest, moor/mud/stone/bark/wood 
 and bridge timbers. Faction castles retain Vowfall-authored silhouettes even when generic source textures
 or small modules are reused.
 
-## First acquisition shortlist
+## Free-only acquisition shortlist
 
 Use the Fab window inside Unreal Engine and choose **Medium (2K)** quality for the first material pass. Add
-only assets shown as free or already entitled on the project's Epic account; do not purchase alternatives yet.
+only assets shown as free or already entitled on the project's Epic account. Paid assets are excluded during
+the prototype stage. Availability was last checked on 2026-07-17 and must be checked again before acquisition.
 
 | Priority | Fab source | Vowfall target | Use |
 | --- | --- | --- | --- |
 | 1 | [Project Titan](https://www.fab.com/listings/c05aac82-4c1a-4e42-96b3-be668dc40fca) | Separate UE 5.8 source project | Inspect dark cliffs, dead forest, generic stone, timber, and surface candidates |
 | 2 | [Soil Mud](https://www.fab.com/listings/c33cb641-e9bd-4966-adc3-c0b5a937ab12) | `T_Mud` | Road bed and riverbank mud |
-| 3 | [Forest Floor](https://www.fab.com/listings/3463d6dc-43fb-4bb2-9d54-9590cf23257e) | `T_Moor` | Desaturated battlefield ground |
-| 4 | [Mossy Forest Floor](https://www.fab.com/listings/e75504fd-9631-4bf2-b5de-4e0b04f59cef) | `T_MoorPatch` | Gravewood floor variation |
-| 5 | [Castle Cobblestone](https://www.fab.com/listings/3d983be3-0574-4cc8-baf1-fd148820ed7d) | `T_RoadStone` | Worn causeway and road center |
-| 6 | [Weathered Wooden Planks](https://www.fab.com/listings/943bdc90-e4c2-4a63-8ca0-1b9556f933dd) | `T_WeatheredWood` | Bridge decks and mine supports |
+| 3 | [Wooden Planks](https://www.fab.com/listings/943bdc90-e4c2-4a63-8ca0-1b9556f933dd) | `T_WeatheredWood` | Bridge decks and mine supports |
+| 4 | [Forest Floor](https://www.fab.com/listings/dae56d09-862c-4f77-9e72-a41281c49633) | `T_Moor`, `T_MoorPatch` | One scan, graded into open-moor and Gravewood variants |
+| 5 | [Free Dirty Stone Tile](https://www.fab.com/listings/a7c28653-f62b-40d6-9dad-481ebe907036) | `T_RoadStone` | Candidate causeway and road center after palette validation |
 
 Do not download Raw quality, 8K textures, complete biome packs, foliage collections, or castle kits for this
-pass. The shortlist is enough to validate the material language before storage, shader cost, and repetition
-increase.
+pass. Missing categories continue to use the original source-controlled Vowfall kit. The forest material's
+tint, roughness, normal strength, and organic masks create the Gravewood variation without requiring a second
+paid scan.
