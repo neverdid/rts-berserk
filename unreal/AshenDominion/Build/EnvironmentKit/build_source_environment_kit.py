@@ -7,6 +7,7 @@ licensed production content is absent. Run with UnrealEditor-Cmd.exe and
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 import unreal
@@ -118,28 +119,26 @@ def _cylinder(
 
 def _roadbed() -> unreal.DynamicMesh:
     result = _mesh()
-    _box(result, dimensions=(100.0, 100.0, 82.0), rotation=(0.0, 0.0, 0.8))
+    _box(result, dimensions=(100.0, 100.0, 100.0))
     return result
 
 
 def _road_stone() -> unreal.DynamicMesh:
     result = _mesh()
-    _box(result, rotation=(0.0, 0.0, 0.6), dimensions=(100.0, 82.0, 100.0))
-    _box(result, location=(-44.0, 5.0, -8.0), rotation=(0.0, 0.0, -4.0), dimensions=(12.0, 64.0, 72.0))
-    _box(result, location=(45.0, -4.0, 7.0), rotation=(0.0, 0.0, 3.0), dimensions=(10.0, 69.0, 78.0))
+    _box(result, dimensions=(100.0, 84.0, 100.0))
     return result
 
 
 def _road_rut() -> unreal.DynamicMesh:
     result = _mesh()
-    _box(result, rotation=(0.0, 0.0, -0.5), dimensions=(100.0, 68.0, 100.0))
+    _box(result, dimensions=(100.0, 68.0, 100.0))
     return result
 
 
 def _river_bank() -> unreal.DynamicMesh:
     result = _mesh()
-    _rock(result, rotation=(13.0, 21.0, -8.0), scale=(1.0, 0.74, 0.50), steps=3)
-    _rock(result, location=(-23.0, 11.0, 4.0), rotation=(-9.0, 83.0, 6.0), scale=(0.46, 0.42, 0.36))
+    _box(result, dimensions=(100.0, 100.0, 72.0))
+    _box(result, location=(-29.0, 6.0, 10.0), dimensions=(30.0, 78.0, 42.0))
     return result
 
 
@@ -420,9 +419,23 @@ def _build_asset(relative_path: str, factory: Callable[[], unreal.DynamicMesh]) 
 
 
 def main() -> None:
-    for relative_path, factory in FACTORIES.items():
+    requested = {
+        path.strip()
+        for path in os.environ.get("VOWFALL_ENVIRONMENT_ASSETS", "").split(";")
+        if path.strip()
+    }
+    unknown = requested.difference(FACTORIES)
+    if unknown:
+        raise RuntimeError(f"Unknown environment mesh factories: {sorted(unknown)}")
+
+    selected = {
+        relative_path: factory
+        for relative_path, factory in FACTORIES.items()
+        if not requested or relative_path in requested
+    }
+    for relative_path, factory in selected.items():
         _build_asset(relative_path, factory)
-    unreal.log(f"Built {len(FACTORIES)} Vowfall source environment meshes")
+    unreal.log(f"Built {len(selected)} Vowfall source environment meshes")
 
 
 main()
