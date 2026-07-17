@@ -1,5 +1,6 @@
 #include "AshenArena.h"
 
+#include "AshenEnvironmentKit.h"
 #include "AshenMaterials.h"
 #include "AshenWorldLayout.h"
 
@@ -135,14 +136,15 @@ Ashen::Materials::FSurfaceStyle SurfaceStyle(const FLinearColor &BaseColor, cons
             DetailScale, DetailStrength, Specular,    0.92f};
 }
 
-void ConfigureInstances(UInstancedStaticMeshComponent *Component, USceneComponent *Parent, UStaticMesh *Mesh,
+void ConfigureInstances(UInstancedStaticMeshComponent *Component, USceneComponent *Parent,
+                        const EAshenEnvironmentMeshSlot Slot, UStaticMesh *FallbackMesh,
                         const bool bCastShadow = true)
 {
     Component->SetupAttachment(Parent);
     Component->SetMobility(EComponentMobility::Static);
     Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Component->SetCastShadow(bCastShadow);
-    Component->SetStaticMesh(Mesh);
+    Component->SetStaticMesh(Ashen::EnvironmentKit::ResolveMesh(Slot, FallbackMesh));
 }
 
 void AddFlatSegment(UInstancedStaticMeshComponent *Component, const FVector2D &Start, const FVector2D &End,
@@ -250,39 +252,39 @@ AAshenArena::AAshenArena()
     BrazierBowls = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BrazierBowls"));
     EmberCores = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("EmberCores"));
 
-    ConfigureInstances(Roadbed, SceneRoot, Cube, false);
-    ConfigureInstances(RoadStones, SceneRoot, Cube, false);
-    ConfigureInstances(RoadRuts, SceneRoot, Cube, false);
-    ConfigureInstances(RiverBanks, SceneRoot, Sphere);
-    ConfigureInstances(Reeds, SceneRoot, Cone, false);
-    ConfigureInstances(BridgeTimbers, SceneRoot, Cube);
-    ConfigureInstances(BridgeIron, SceneRoot, Cube);
-    ConfigureInstances(TreeTrunks, SceneRoot, Cylinder);
-    ConfigureInstances(TreeCrowns, SceneRoot, Cone);
-    ConfigureInstances(TreeCrownsShadow, SceneRoot, Cone);
-    ConfigureInstances(TreeCanopies, SceneRoot, Sphere);
-    ConfigureInstances(DeadBranches, SceneRoot, Cylinder);
-    ConfigureInstances(GrassTufts, SceneRoot, Cone, false);
-    ConfigureInstances(Rocks, SceneRoot, Sphere);
-    ConfigureInstances(MountainRocks, SceneRoot, Sphere);
-    ConfigureInstances(MineMouths, SceneRoot, Cube);
-    ConfigureInstances(MineTimbers, SceneRoot, Cylinder);
-    ConfigureInstances(ForestRoots, SceneRoot, Cylinder);
-    ConfigureInstances(HumanWalls, SceneRoot, Cube);
-    ConfigureInstances(HumanTowers, SceneRoot, Cylinder);
-    ConfigureInstances(HumanRoofs, SceneRoot, Cone);
-    ConfigureInstances(HumanFoundations, SceneRoot, Cube);
-    ConfigureInstances(HumanTrim, SceneRoot, Cube);
-    ConfigureInstances(HumanBanners, SceneRoot, Cube, false);
-    ConfigureInstances(MonsterMasses, SceneRoot, Sphere);
-    ConfigureInstances(MonsterSpikes, SceneRoot, Cone);
-    ConfigureInstances(MonsterRibs, SceneRoot, Cylinder);
-    ConfigureInstances(MonsterSinew, SceneRoot, Sphere);
-    ConfigureInstances(BonePalisade, SceneRoot, Cone);
-    ConfigureInstances(RitualStones, SceneRoot, Cylinder);
-    ConfigureInstances(MythicArches, SceneRoot, Cylinder);
-    ConfigureInstances(BrazierBowls, SceneRoot, Cylinder);
-    ConfigureInstances(EmberCores, SceneRoot, Sphere, false);
+    ConfigureInstances(Roadbed, SceneRoot, EAshenEnvironmentMeshSlot::Roadbed, Cube, false);
+    ConfigureInstances(RoadStones, SceneRoot, EAshenEnvironmentMeshSlot::RoadStone, Cube, false);
+    ConfigureInstances(RoadRuts, SceneRoot, EAshenEnvironmentMeshSlot::RoadRut, Cube, false);
+    ConfigureInstances(RiverBanks, SceneRoot, EAshenEnvironmentMeshSlot::RiverBank, Sphere);
+    ConfigureInstances(Reeds, SceneRoot, EAshenEnvironmentMeshSlot::Reed, Cone, false);
+    ConfigureInstances(BridgeTimbers, SceneRoot, EAshenEnvironmentMeshSlot::BridgeTimber, Cube);
+    ConfigureInstances(BridgeIron, SceneRoot, EAshenEnvironmentMeshSlot::BridgeIron, Cube);
+    ConfigureInstances(TreeTrunks, SceneRoot, EAshenEnvironmentMeshSlot::TreeTrunk, Cylinder);
+    ConfigureInstances(TreeCrowns, SceneRoot, EAshenEnvironmentMeshSlot::TreeCrown, Cone);
+    ConfigureInstances(TreeCrownsShadow, SceneRoot, EAshenEnvironmentMeshSlot::TreeCrownShadow, Cone);
+    ConfigureInstances(TreeCanopies, SceneRoot, EAshenEnvironmentMeshSlot::TreeCanopy, Sphere);
+    ConfigureInstances(DeadBranches, SceneRoot, EAshenEnvironmentMeshSlot::DeadBranch, Cylinder);
+    ConfigureInstances(GrassTufts, SceneRoot, EAshenEnvironmentMeshSlot::GrassTuft, Cone, false);
+    ConfigureInstances(Rocks, SceneRoot, EAshenEnvironmentMeshSlot::FieldRock, Sphere);
+    ConfigureInstances(MountainRocks, SceneRoot, EAshenEnvironmentMeshSlot::MountainRock, Sphere);
+    ConfigureInstances(MineMouths, SceneRoot, EAshenEnvironmentMeshSlot::MineMouth, Cube);
+    ConfigureInstances(MineTimbers, SceneRoot, EAshenEnvironmentMeshSlot::MineTimber, Cylinder);
+    ConfigureInstances(ForestRoots, SceneRoot, EAshenEnvironmentMeshSlot::ForestRoot, Cylinder);
+    ConfigureInstances(HumanWalls, SceneRoot, EAshenEnvironmentMeshSlot::HumanWall, Cube);
+    ConfigureInstances(HumanTowers, SceneRoot, EAshenEnvironmentMeshSlot::HumanTower, Cylinder);
+    ConfigureInstances(HumanRoofs, SceneRoot, EAshenEnvironmentMeshSlot::HumanRoof, Cone);
+    ConfigureInstances(HumanFoundations, SceneRoot, EAshenEnvironmentMeshSlot::HumanFoundation, Cube);
+    ConfigureInstances(HumanTrim, SceneRoot, EAshenEnvironmentMeshSlot::HumanTrim, Cube);
+    ConfigureInstances(HumanBanners, SceneRoot, EAshenEnvironmentMeshSlot::HumanBanner, Cube, false);
+    ConfigureInstances(MonsterMasses, SceneRoot, EAshenEnvironmentMeshSlot::MonsterMass, Sphere);
+    ConfigureInstances(MonsterSpikes, SceneRoot, EAshenEnvironmentMeshSlot::MonsterSpike, Cone);
+    ConfigureInstances(MonsterRibs, SceneRoot, EAshenEnvironmentMeshSlot::MonsterRib, Cylinder);
+    ConfigureInstances(MonsterSinew, SceneRoot, EAshenEnvironmentMeshSlot::MonsterSinew, Sphere);
+    ConfigureInstances(BonePalisade, SceneRoot, EAshenEnvironmentMeshSlot::BonePalisade, Cone);
+    ConfigureInstances(RitualStones, SceneRoot, EAshenEnvironmentMeshSlot::RitualStone, Cylinder);
+    ConfigureInstances(MythicArches, SceneRoot, EAshenEnvironmentMeshSlot::MythicArch, Cylinder);
+    ConfigureInstances(BrazierBowls, SceneRoot, EAshenEnvironmentMeshSlot::BrazierBowl, Cylinder);
+    ConfigureInstances(EmberCores, SceneRoot, EAshenEnvironmentMeshSlot::EmberCore, Sphere, false);
 
     BuildRiver();
     BuildRoadsAndBridges();
@@ -936,41 +938,46 @@ void AAshenArena::BeginPlay()
     const auto MythicStone = SurfaceStyle({0.030f, 0.042f, 0.042f}, {0.075f, 0.105f, 0.095f}, {0.13f, 0.205f, 0.17f},
                                           0.82f, 145.0f, 31.0f, 0.19f, 0.36f);
 
-    Ashen::Materials::ApplySurface(Terrain, this, Moor);
-    Ashen::Materials::ApplySurface(Roadbed, this, Mud);
-    Ashen::Materials::ApplySurface(RoadStones, this, RoadStone);
+    Ashen::Materials::ApplySurface(Terrain, this, Moor, EAshenEnvironmentSurface::Moor);
+    Ashen::Materials::ApplySurface(Roadbed, this, Mud, EAshenEnvironmentSurface::Mud);
+    Ashen::Materials::ApplySurface(RoadStones, this, RoadStone, EAshenEnvironmentSurface::RoadStone);
     Ashen::Materials::ApplySurface(
         RoadRuts, this,
-        SurfaceStyle({0.035f, 0.022f, 0.016f}, {0.07f, 0.045f, 0.028f}, {0.11f, 0.075f, 0.045f}, 0.72f));
-    Ashen::Materials::ApplySurface(RiverBanks, this, WetStone);
-    Ashen::Materials::ApplySurface(Reeds, this, Pine);
-    Ashen::Materials::ApplySurface(BridgeTimbers, this, WeatheredWood);
-    Ashen::Materials::ApplySurface(BridgeIron, this, DarkIron);
-    Ashen::Materials::ApplySurface(TreeTrunks, this, Bark);
-    Ashen::Materials::ApplySurface(TreeCrowns, this, Pine);
-    Ashen::Materials::ApplySurface(TreeCrownsShadow, this, PineShadow);
-    Ashen::Materials::ApplySurface(TreeCanopies, this, Pine);
-    Ashen::Materials::ApplySurface(DeadBranches, this, Bark);
-    Ashen::Materials::ApplySurface(GrassTufts, this, MoorPatch);
-    Ashen::Materials::ApplySurface(Rocks, this, WetStone);
-    Ashen::Materials::ApplySurface(MountainRocks, this, FoundationStone);
-    Ashen::Materials::ApplySurface(MineMouths, this, MineDark);
-    Ashen::Materials::ApplySurface(MineTimbers, this, WeatheredWood);
-    Ashen::Materials::ApplySurface(ForestRoots, this, Bark);
-    Ashen::Materials::ApplySurface(HumanWalls, this, HumanStone);
-    Ashen::Materials::ApplySurface(HumanTowers, this, HumanStone);
-    Ashen::Materials::ApplySurface(HumanRoofs, this, HumanRoof);
-    Ashen::Materials::ApplySurface(HumanFoundations, this, FoundationStone);
-    Ashen::Materials::ApplySurface(HumanTrim, this, DarkIron);
-    Ashen::Materials::ApplySurface(HumanBanners, this, HumanRoof);
-    Ashen::Materials::ApplySurface(MonsterMasses, this, Flesh);
-    Ashen::Materials::ApplySurface(MonsterSpikes, this, Flesh);
-    Ashen::Materials::ApplySurface(MonsterRibs, this, Bone);
-    Ashen::Materials::ApplySurface(MonsterSinew, this, Flesh);
-    Ashen::Materials::ApplySurface(BonePalisade, this, Bone);
-    Ashen::Materials::ApplySurface(RitualStones, this, MythicStone);
-    Ashen::Materials::ApplySurface(MythicArches, this, MythicStone);
-    Ashen::Materials::ApplySurface(BrazierBowls, this, DarkIron);
+        SurfaceStyle({0.035f, 0.022f, 0.016f}, {0.07f, 0.045f, 0.028f}, {0.11f, 0.075f, 0.045f}, 0.72f),
+        EAshenEnvironmentSurface::Mud);
+    Ashen::Materials::ApplySurface(RiverBanks, this, WetStone, EAshenEnvironmentSurface::WetStone);
+    Ashen::Materials::ApplySurface(Reeds, this, Pine, EAshenEnvironmentSurface::Pine);
+    Ashen::Materials::ApplySurface(BridgeTimbers, this, WeatheredWood,
+                                   EAshenEnvironmentSurface::WeatheredWood);
+    Ashen::Materials::ApplySurface(BridgeIron, this, DarkIron, EAshenEnvironmentSurface::DarkIron);
+    Ashen::Materials::ApplySurface(TreeTrunks, this, Bark, EAshenEnvironmentSurface::Bark);
+    Ashen::Materials::ApplySurface(TreeCrowns, this, Pine, EAshenEnvironmentSurface::Pine);
+    Ashen::Materials::ApplySurface(TreeCrownsShadow, this, PineShadow, EAshenEnvironmentSurface::PineShadow);
+    Ashen::Materials::ApplySurface(TreeCanopies, this, Pine, EAshenEnvironmentSurface::Pine);
+    Ashen::Materials::ApplySurface(DeadBranches, this, Bark, EAshenEnvironmentSurface::Bark);
+    Ashen::Materials::ApplySurface(GrassTufts, this, MoorPatch, EAshenEnvironmentSurface::MoorPatch);
+    Ashen::Materials::ApplySurface(Rocks, this, WetStone, EAshenEnvironmentSurface::WetStone);
+    Ashen::Materials::ApplySurface(MountainRocks, this, FoundationStone,
+                                   EAshenEnvironmentSurface::FoundationStone);
+    Ashen::Materials::ApplySurface(MineMouths, this, MineDark, EAshenEnvironmentSurface::MineDark);
+    Ashen::Materials::ApplySurface(MineTimbers, this, WeatheredWood,
+                                   EAshenEnvironmentSurface::WeatheredWood);
+    Ashen::Materials::ApplySurface(ForestRoots, this, Bark, EAshenEnvironmentSurface::Bark);
+    Ashen::Materials::ApplySurface(HumanWalls, this, HumanStone, EAshenEnvironmentSurface::HumanStone);
+    Ashen::Materials::ApplySurface(HumanTowers, this, HumanStone, EAshenEnvironmentSurface::HumanStone);
+    Ashen::Materials::ApplySurface(HumanRoofs, this, HumanRoof, EAshenEnvironmentSurface::HumanRoof);
+    Ashen::Materials::ApplySurface(HumanFoundations, this, FoundationStone,
+                                   EAshenEnvironmentSurface::FoundationStone);
+    Ashen::Materials::ApplySurface(HumanTrim, this, DarkIron, EAshenEnvironmentSurface::DarkIron);
+    Ashen::Materials::ApplySurface(HumanBanners, this, HumanRoof, EAshenEnvironmentSurface::HumanRoof);
+    Ashen::Materials::ApplySurface(MonsterMasses, this, Flesh, EAshenEnvironmentSurface::Flesh);
+    Ashen::Materials::ApplySurface(MonsterSpikes, this, Flesh, EAshenEnvironmentSurface::Flesh);
+    Ashen::Materials::ApplySurface(MonsterRibs, this, Bone, EAshenEnvironmentSurface::Bone);
+    Ashen::Materials::ApplySurface(MonsterSinew, this, Flesh, EAshenEnvironmentSurface::Flesh);
+    Ashen::Materials::ApplySurface(BonePalisade, this, Bone, EAshenEnvironmentSurface::Bone);
+    Ashen::Materials::ApplySurface(RitualStones, this, MythicStone, EAshenEnvironmentSurface::MythicStone);
+    Ashen::Materials::ApplySurface(MythicArches, this, MythicStone, EAshenEnvironmentSurface::MythicStone);
+    Ashen::Materials::ApplySurface(BrazierBowls, this, DarkIron, EAshenEnvironmentSurface::DarkIron);
     Ashen::Materials::Apply(EmberCores, this, FLinearColor(0.78f, 0.09f, 0.025f), 0.16f);
 
     for (UStaticMeshComponent *WaterSegment : WaterSegments)

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kit_id": "vowfall-production-environment-kit",
+  "content_root": "/Game/External/VowfallEnvironmentKit",
+  "source": {
+    "name": "Project Titan",
+    "publisher": "Epic Games",
+    "listing_id": "c05aac82-4c1a-4e42-96b3-be668dc40fca",
+    "listing_url": "https://www.fab.com/listings/c05aac82-4c1a-4e42-96b3-be668dc40fca",
+    "license": "Fab Standard License",
+    "listing_version_reviewed": "2026-06-17",
+    "raw_distribution": "private-collaborators-only"
+  },
+  "priority_meshes": [
+    { "slot": "RoadStone", "path": "Meshes/Road/SM_RoadStone_A", "source_asset": null },
+    { "slot": "RiverBank", "path": "Meshes/Rock/SM_RiverBank_A", "source_asset": null },
+    { "slot": "Reed", "path": "Meshes/Foliage/SM_Reed_A", "source_asset": null },
+    { "slot": "BridgeTimber", "path": "Meshes/Architecture/SM_BridgeTimber_A", "source_asset": null },
+    { "slot": "TreeTrunk", "path": "Meshes/Foliage/SM_TreeTrunk_A", "source_asset": null },
+    { "slot": "TreeCrown", "path": "Meshes/Foliage/SM_ConiferCrown_A", "source_asset": null },
+    { "slot": "TreeCanopy", "path": "Meshes/Foliage/SM_BroadleafCanopy_A", "source_asset": null },
+    { "slot": "DeadBranch", "path": "Meshes/Foliage/SM_DeadBranch_A", "source_asset": null },
+    { "slot": "GrassTuft", "path": "Meshes/Foliage/SM_GrassTuft_A", "source_asset": null },
+    { "slot": "FieldRock", "path": "Meshes/Rock/SM_FieldRock_A", "source_asset": null },
+    { "slot": "MountainRock", "path": "Meshes/Rock/SM_MountainCliff_A", "source_asset": null },
+    { "slot": "MineTimber", "path": "Meshes/Architecture/SM_MineTimber_A", "source_asset": null },
+    { "slot": "ForestRoot", "path": "Meshes/Foliage/SM_ForestRoot_A", "source_asset": null }
+  ],
+  "priority_surfaces": [
+    { "slot": "Moor", "prefix": "Textures/Ground/T_Moor", "source_asset": null },
+    { "slot": "MoorPatch", "prefix": "Textures/Ground/T_MoorPatch", "source_asset": null },
+    { "slot": "Mud", "prefix": "Textures/Ground/T_Mud", "source_asset": null },
+    { "slot": "RoadStone", "prefix": "Textures/Stone/T_RoadStone", "source_asset": null },
+    { "slot": "WetStone", "prefix": "Textures/Stone/T_WetStone", "source_asset": null },
+    { "slot": "WeatheredWood", "prefix": "Textures/Wood/T_WeatheredWood", "source_asset": null },
+    { "slot": "Bark", "prefix": "Textures/Wood/T_OldBark", "source_asset": null },
+    { "slot": "FoundationStone", "prefix": "Textures/Stone/T_Foundation", "source_asset": null }
+  ]
+}
