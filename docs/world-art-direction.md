@@ -102,11 +102,25 @@ including simulation and UI. Environment work should preserve headroom for late-
 - Battle and whole-world render capture harnesses
 - Unreal automation contract for terrain collision and required material assets
 
-### 3B. Production environment kit - next
+### 3B. Production environment kit - in progress
 
-- Curate and import a coherent licensed rock, cliff, tree, grass, debris, road, bridge, and castle kit
-- Build material instances, pivots, collision, Nanite/LOD settings, foliage rules, and source-art records
-- Replace every Engine basic-shape proxy category-by-category
+Delivered foundation:
+
+- Thirty-three original, reproducible Vowfall meshes replace every Engine basic-shape category while
+  retaining a final Engine fallback
+- Semantic mesh and surface slots prefer a curated local production kit without coupling licensed art
+  to the public repository or deterministic collision
+- The master surface material accepts albedo, normal, and packed AO/roughness textures with explicit
+  blend, tiling, normal-strength, and mask-strength controls
+- Project Titan selection policy, Fab license boundary, canonical naming, intake manifest, audit tool,
+  and Unreal automation contract
+
+Remaining production pass:
+
+- Acquire Project Titan per collaborator, inspect exact source assets, and migrate only approved rock,
+  cliff, dead-forest, road, timber, debris, and generic surface families
+- Normalize pivots, collision, Nanite/LOD settings, foliage rules, texture channels, and source-art records
+- Capture and profile each category replacement before accepting it over the original Vowfall mesh
 
 ### 3C. Authored competitive map
 

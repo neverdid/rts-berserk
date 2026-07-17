@@ -1,0 +1,93 @@
+# Vowfall production environment kit
+
+## Purpose
+
+Step 3B replaces the battlefield's Engine primitives with a coherent production kit without allowing
+art assets to change pathing, targeting, selection, or competitive geometry. Visual components keep
+collision disabled; the invisible deterministic ground and simulation obstacles remain authoritative.
+
+The runtime resolves semantic slots such as `MountainRock`, `TreeTrunk`, and `BridgeTimber` from
+`/Game/External/VowfallEnvironmentKit`. A missing slot falls back quietly to the source-controlled
+Vowfall kit under `/Game/Art/Environment/VowfallKit`, so programmers and CI can build the project
+without owning every licensed pack. That original kit contains 33 reproducible Geometry Script assets
+and is itself preferred over the legacy Engine primitives.
+
+## Project Titan decision
+
+[Project Titan](https://www.fab.com/listings/c05aac82-4c1a-4e42-96b3-be668dc40fca) is an approved
+candidate source, not Vowfall's art direction. The Epic Games sample supports Unreal Engine 5.5-5.8,
+is distributed as a complete project, and is intentionally much larger than this RTS needs. Importing
+the whole project would add unrelated gameplay, plugins, world-partition data, shaders, and recognizable
+biomes while making review and performance work harder.
+
+Curate only:
+
+- Faceted cliff and field-rock families from the darker biomes
+- Dead trunks, roots, restrained forest floor dressing, and generic grass silhouettes
+- Generic fieldstone, rubble, timber, plank, iron, mud, bark, and wet-stone surfaces
+- Small structural modules that can be recomposed into original Vowfall silhouettes
+
+Do not import:
+
+- The 8 by 8 km world, gameplay code, Mover character, plugins, maps, or World Partition data
+- Characters, signature landmarks, complete buildings, or culturally specific roof silhouettes
+- Luminous crystals, giant mushrooms, volcanic emissives, saturated fantasy foliage, or bright palette
+- Materials that cannot be reduced to the Vowfall master-material contract
+
+Every selected asset must be renamed, normalized, recolored, and recomposed. Titan supplies production
+craft and useful generic building blocks; it must not make Vowfall look like a Titan biome or asset flip.
+
+## License boundary
+
+Project Titan currently uses the Fab Standard License. That license permits use and modification inside
+a project and private sharing with collaborators, but prohibits standalone redistribution. Therefore:
+
+- Each collaborator acquires the free listing through their own Fab account.
+- Raw and migrated licensed files live under `Content/External`, which Git ignores.
+- Licensed source assets are shared only through an approved private project store.
+- Public GitHub contains code, canonical names, source records, and original fallback assets only.
+- Packaged builds may include approved assets as inseparable game content.
+
+This record is an engineering policy, not legal advice. Recheck the listing and binding license when the
+game enters commercial production.
+
+## Canonical content contract
+
+The local root is `/Game/External/VowfallEnvironmentKit` and can be changed in Project Settings under
+**Game > Vowfall Environment Kit**. Asset names and paths are defined by `AshenEnvironmentKit.cpp`.
+
+Mesh contract:
+
+- Unreal units are centimeters; the canonical source envelope is 100 by 100 by 100 cm.
+- Pivots and forward axes must match the corresponding Engine fallback before migration.
+- Rigid rocks, cliffs, masonry, and structural modules need Nanite or at least three useful LODs.
+- Foliage stays non-Nanite for the beta path and needs at least four LODs with stable silhouettes.
+- Material slots are consolidated before intake; decorative geometry never supplies gameplay collision.
+- Shadow casting is reserved for silhouette-scale geometry and disabled for small ground clutter.
+
+Texture contract:
+
+| Suffix | Data | Unreal settings |
+| --- | --- | --- |
+| `_BC` | Base color | sRGB on, alpha removed unless required |
+| `_N` | Tangent-space normal | Normal-map compression, sRGB off |
+| `_ORM` | R: AO, G: roughness, B: material variation | Masks compression, sRGB off |
+
+Use 2K textures for ordinary terrain and structures, 1K for small props and foliage, and 4K only for a
+small number of broad terrain or cliff surfaces that show measurable improvement at the normal RTS
+camera. All textures require mipmaps and streaming. Vowfall material instances remove bright emissive,
+lower saturation, preserve mid-value unit contrast, and keep blood-red accents scarce.
+
+## Intake sequence
+
+1. Add Project Titan to the artist's Fab library and create it as a separate UE 5.8 project.
+2. Review its assets in an overview level; do not migrate folders in bulk.
+3. Migrate one approved dependency-complete asset family into the canonical external root.
+4. Normalize names, 100 cm envelope, pivot, material slots, texture channels, LOD/Nanite, and collision.
+5. Run `Build/EnvironmentKit/audit_environment_kit.py` through `UnrealEditor-Cmd.exe`.
+6. Capture both the battle camera and whole battlefield and compare unit readability and frame cost.
+7. Record the exact source asset and transformation in `environment-kit.json` before approval.
+
+The first acceptance group is cliff/rock, dead forest, moor/mud/stone/bark/wood textures, road dressing,
+and bridge timbers. Faction castles retain Vowfall-authored silhouettes even when generic source textures
+or small modules are reused.

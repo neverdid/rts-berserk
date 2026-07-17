@@ -94,6 +94,30 @@ $script = (Resolve-Path `
   "-ExecutePythonScript=$script" -unattended -nop4 -nosplash -NoSound
 ```
 
+Audit the locally acquired Step 3B production environment kit. The default audit reports missing slots
+without failing, while `-EnvironmentKitStrict` makes an incomplete artist workstation fail:
+
+```powershell
+$script = (Resolve-Path `
+  'unreal/AshenDominion/Build/EnvironmentKit/audit_environment_kit.py').Path.Replace('\', '/')
+& "$env:UE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+  "$PWD\unreal\AshenDominion\AshenDominion.uproject" `
+  "-ExecutePythonScript=$script" -unattended -nop4 -nosplash -NoSound
+```
+
+Licensed Fab source assets belong in `Content/External` and are intentionally excluded from public Git.
+See [the production environment-kit contract](docs/environment-kit.md) before migrating content.
+
+Regenerate the original source-controlled fallback meshes after changing their Geometry Script factories:
+
+```powershell
+$script = (Resolve-Path `
+  'unreal/AshenDominion/Build/EnvironmentKit/build_source_environment_kit.py').Path.Replace('\', '/')
+& "$env:UE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+  "$PWD\unreal\AshenDominion\AshenDominion.uproject" `
+  "-ExecutePythonScript=$script" -unattended -nop4 -nullrhi -nosplash -NoSound
+```
+
 Capture the whole battlefield for visual regression review:
 
 ```powershell

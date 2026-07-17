@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AshenArena.h"
+#include "AshenEnvironmentKit.h"
 #include "AshenWorldLayout.h"
 
 #include "Components/InstancedStaticMeshComponent.h"
@@ -111,6 +112,8 @@ bool FAshenWorldVisualFoundationTest::RunTest(const FString &Parameters)
         Cast<UInstancedStaticMeshComponent>(Arena->GetDefaultSubobjectByName(TEXT("ForestRoots")));
     TestTrue(TEXT("Northwest massif owns a substantial rock silhouette"),
              Mountain != nullptr && Mountain->GetInstanceCount() >= 24);
+    TestTrue(TEXT("Production art never supplies deterministic collision"),
+             Mountain != nullptr && Mountain->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
     TestEqual(TEXT("The concealed route owns two mine entrances"), Mines != nullptr ? Mines->GetInstanceCount() : 0, 2);
     TestTrue(TEXT("Gravewood owns a dedicated root layer"), Gravewood != nullptr && Gravewood->GetInstanceCount() > 0);
     TestNull(TEXT("Legacy perimeter monoliths stay removed"),
@@ -124,6 +127,73 @@ bool FAshenWorldVisualFoundationTest::RunTest(const FString &Parameters)
         LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Art/Materials/M_VowfallWater.M_VowfallWater"));
     TestNotNull(TEXT("Painterly surface master material is available to the project"), Surface);
     TestNotNull(TEXT("Water master material is available to the project"), Water);
+
+    if (Surface != nullptr)
+    {
+        TArray<FMaterialParameterInfo> TextureParameters;
+        TArray<FGuid> TextureIds;
+        Surface->GetAllTextureParameterInfo(TextureParameters, TextureIds);
+        const auto HasTextureParameter = [&TextureParameters](const FName Name) {
+            return TextureParameters.ContainsByPredicate(
+                [Name](const FMaterialParameterInfo &Parameter) { return Parameter.Name == Name; });
+        };
+        TestTrue(TEXT("Surface material accepts production albedo textures"),
+                 HasTextureParameter(TEXT("AlbedoTexture")));
+        TestTrue(TEXT("Surface material accepts production normal textures"),
+                 HasTextureParameter(TEXT("NormalTexture")));
+        TestTrue(TEXT("Surface material accepts packed AO and roughness textures"),
+                 HasTextureParameter(TEXT("PackedTexture")));
+
+        TArray<FMaterialParameterInfo> ScalarParameters;
+        TArray<FGuid> ScalarIds;
+        Surface->GetAllScalarParameterInfo(ScalarParameters, ScalarIds);
+        const auto HasScalarParameter = [&ScalarParameters](const FName Name) {
+            return ScalarParameters.ContainsByPredicate(
+                [Name](const FMaterialParameterInfo &Parameter) { return Parameter.Name == Name; });
+        };
+        TestTrue(TEXT("Texture blending remains an explicit material control"),
+                 HasScalarParameter(TEXT("TextureBlend")));
+        TestTrue(TEXT("Texture tiling remains an explicit material control"),
+                 HasScalarParameter(TEXT("TextureTiling")));
+    }
+
+    const UAshenEnvironmentKitSettings *KitSettings = GetDefault<UAshenEnvironmentKitSettings>();
+    TestNotNull(TEXT("Environment-kit settings are registered"), KitSettings);
+    TestTrue(TEXT("Licensed source content remains under the external boundary"),
+             KitSettings != nullptr && KitSettings->ProductionContentRoot.StartsWith(TEXT("/Game/External/")));
+
+    const TConstArrayView<Ashen::EnvironmentKit::FMeshSpec> MeshSpecs = Ashen::EnvironmentKit::MeshSpecs();
+    TestEqual(TEXT("Every visual proxy category owns a semantic production slot"), MeshSpecs.Num(),
+              static_cast<int32>(EAshenEnvironmentMeshSlot::Count));
+    TSet<uint8> MeshSlots;
+    UStaticMesh *FallbackCube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    for (const Ashen::EnvironmentKit::FMeshSpec &Spec : MeshSpecs)
+    {
+        MeshSlots.Add(static_cast<uint8>(Spec.Slot));
+        TestTrue(FString::Printf(TEXT("%s has a canonical external path"), Spec.DisplayName),
+                 Ashen::EnvironmentKit::ObjectPath(Spec).StartsWith(TEXT("/Game/External/")));
+        TestTrue(FString::Printf(TEXT("%s has a source-controlled Vowfall path"), Spec.DisplayName),
+                 Ashen::EnvironmentKit::SourceObjectPath(Spec).StartsWith(
+                     TEXT("/Game/Art/Environment/VowfallKit/")));
+        TestNotNull(FString::Printf(TEXT("%s has an original Vowfall fallback mesh"), Spec.DisplayName),
+                    Ashen::EnvironmentKit::FindSourceMesh(Spec.Slot));
+        TestNotNull(FString::Printf(TEXT("%s retains a source-safe fallback"), Spec.DisplayName),
+                    Ashen::EnvironmentKit::ResolveMesh(Spec.Slot, FallbackCube));
+    }
+    TestEqual(TEXT("Environment mesh slots are unique"), MeshSlots.Num(), MeshSpecs.Num());
+
+    const TConstArrayView<Ashen::EnvironmentKit::FSurfaceSpec> SurfaceSpecs =
+        Ashen::EnvironmentKit::SurfaceSpecs();
+    TestEqual(TEXT("Every textured surface owns a canonical production slot"), SurfaceSpecs.Num(),
+              static_cast<int32>(EAshenEnvironmentSurface::Count) - 1);
+    TSet<uint8> SurfaceSlots;
+    for (const Ashen::EnvironmentKit::FSurfaceSpec &Spec : SurfaceSpecs)
+    {
+        SurfaceSlots.Add(static_cast<uint8>(Spec.Slot));
+        TestTrue(FString::Printf(TEXT("%s has a canonical albedo path"), Spec.DisplayName),
+                 Ashen::EnvironmentKit::TextureObjectPath(Spec, TEXT("_BC")).StartsWith(TEXT("/Game/External/")));
+    }
+    TestEqual(TEXT("Environment surface slots are unique"), SurfaceSlots.Num(), SurfaceSpecs.Num());
     return true;
 }
 

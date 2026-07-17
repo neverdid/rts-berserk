@@ -3,6 +3,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Engine/Texture2D.h"
 #include "UObject/UObjectGlobals.h"
 
 namespace
@@ -53,7 +54,8 @@ void Ashen::Materials::Apply(UPrimitiveComponent *Component, UObject *Outer, con
     Component->SetMaterial(0, Material);
 }
 
-void Ashen::Materials::ApplySurface(UPrimitiveComponent *Component, UObject *Outer, const FSurfaceStyle &Style)
+void Ashen::Materials::ApplySurface(UPrimitiveComponent *Component, UObject *Outer, const FSurfaceStyle &Style,
+                                    const EAshenEnvironmentSurface Surface)
 {
     UMaterialInstanceDynamic *Material =
         CreateMaterial(Component, Outer, TEXT("/Game/Art/Materials/M_VowfallSurface.M_VowfallSurface"));
@@ -72,6 +74,37 @@ void Ashen::Materials::ApplySurface(UPrimitiveComponent *Component, UObject *Out
     Material->SetScalarParameterValue(TEXT("DetailStrength"), Style.DetailStrength);
     Material->SetScalarParameterValue(TEXT("Specular"), Style.Specular);
     Material->SetScalarParameterValue(TEXT("AmbientOcclusion"), Style.AmbientOcclusion);
+    Material->SetScalarParameterValue(TEXT("TextureTiling"), Style.TextureTiling);
+
+    const Ashen::EnvironmentKit::FSurfaceTextures Textures =
+        Ashen::EnvironmentKit::ResolveSurfaceTextures(Surface);
+    if (Textures.Albedo != nullptr)
+    {
+        Material->SetTextureParameterValue(TEXT("AlbedoTexture"), Textures.Albedo);
+        Material->SetScalarParameterValue(TEXT("TextureBlend"), Style.TextureBlend);
+    }
+    else
+    {
+        Material->SetScalarParameterValue(TEXT("TextureBlend"), 0.0f);
+    }
+    if (Textures.Normal != nullptr)
+    {
+        Material->SetTextureParameterValue(TEXT("NormalTexture"), Textures.Normal);
+        Material->SetScalarParameterValue(TEXT("NormalStrength"), Style.NormalStrength);
+    }
+    else
+    {
+        Material->SetScalarParameterValue(TEXT("NormalStrength"), 0.0f);
+    }
+    if (Textures.Packed != nullptr)
+    {
+        Material->SetTextureParameterValue(TEXT("PackedTexture"), Textures.Packed);
+        Material->SetScalarParameterValue(TEXT("PackedStrength"), Style.PackedStrength);
+    }
+    else
+    {
+        Material->SetScalarParameterValue(TEXT("PackedStrength"), 0.0f);
+    }
     Component->SetMaterial(0, Material);
 }
 

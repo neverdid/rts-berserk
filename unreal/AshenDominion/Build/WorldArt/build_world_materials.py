@@ -198,18 +198,116 @@ def build_surface_material() -> unreal.Material:
     _connect(macro_lerp, final_color, "A")
     _connect(accent_color, final_color, "B")
     _connect(detail_mask, final_color, "Alpha")
-    _connect_property(final_color, unreal.MaterialProperty.MP_BASE_COLOR)
+
+    white_texture = unreal.load_asset(
+        "/Engine/EngineResources/WhiteSquareTexture"
+    )
+    normal_texture = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+    masks_texture = unreal.load_asset(
+        "/Engine/EngineMaterials/DefaultDiffuse_TC_Masks"
+    )
+    if white_texture is None or normal_texture is None or masks_texture is None:
+        raise RuntimeError("Required Engine fallback textures are unavailable")
+
+    texture_coordinates = _expression(
+        material, unreal.MaterialExpressionTextureCoordinate, -1_100, 510
+    )
+    texture_tiling = _scalar_parameter(
+        material, "TextureTiling", 1.0, -1_100, 610
+    )
+    scaled_texture_coordinates = _expression(
+        material, unreal.MaterialExpressionMultiply, -870, 520
+    )
+    _connect(texture_coordinates, scaled_texture_coordinates, "A")
+    _connect(texture_tiling, scaled_texture_coordinates, "B")
+
+    albedo_texture = _expression(
+        material,
+        unreal.MaterialExpressionTextureSampleParameter2D,
+        -620,
+        480,
+        parameter_name="AlbedoTexture",
+        texture=white_texture,
+        sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR,
+    )
+    _connect(scaled_texture_coordinates, albedo_texture, "UVs")
+    texture_tint = _vector_parameter(
+        material, "TextureTint", (1.0, 1.0, 1.0, 1.0), -620, 610
+    )
+    tinted_albedo = _expression(
+        material, unreal.MaterialExpressionMultiply, -370, 480
+    )
+    _connect(albedo_texture, tinted_albedo, "A", "RGB")
+    _connect(texture_tint, tinted_albedo, "B")
+    texture_blend = _scalar_parameter(
+        material, "TextureBlend", 0.0, -370, 610
+    )
+    textured_color = _expression(
+        material, unreal.MaterialExpressionLinearInterpolate, 150, -130
+    )
+    _connect(final_color, textured_color, "A")
+    _connect(tinted_albedo, textured_color, "B")
+    _connect(texture_blend, textured_color, "Alpha")
+    _connect_property(textured_color, unreal.MaterialProperty.MP_BASE_COLOR)
+
+    normal_sample = _expression(
+        material,
+        unreal.MaterialExpressionTextureSampleParameter2D,
+        -120,
+        440,
+        parameter_name="NormalTexture",
+        texture=normal_texture,
+        sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL,
+    )
+    _connect(scaled_texture_coordinates, normal_sample, "UVs")
+    flat_normal = _vector_parameter(
+        material, "FlatNormal", (0.0, 0.0, 1.0, 1.0), -120, 570
+    )
+    normal_strength = _scalar_parameter(
+        material, "NormalStrength", 0.0, 130, 570
+    )
+    blended_normal = _expression(
+        material, unreal.MaterialExpressionLinearInterpolate, 390, 460
+    )
+    _connect(flat_normal, blended_normal, "A")
+    _connect(normal_sample, blended_normal, "B", "RGB")
+    _connect(normal_strength, blended_normal, "Alpha")
+    _connect_property(blended_normal, unreal.MaterialProperty.MP_NORMAL)
+
+    packed_texture = _expression(
+        material,
+        unreal.MaterialExpressionTextureSampleParameter2D,
+        -120,
+        700,
+        parameter_name="PackedTexture",
+        texture=masks_texture,
+        sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_MASKS,
+    )
+    _connect(scaled_texture_coordinates, packed_texture, "UVs")
+    packed_strength = _scalar_parameter(
+        material, "PackedStrength", 0.0, 130, 800
+    )
 
     roughness = _scalar_parameter(material, "Roughness", 0.9, -80, 40)
     specular = _scalar_parameter(material, "Specular", 0.25, -80, 130)
     ambient_occlusion = _scalar_parameter(
         material, "AmbientOcclusion", 0.92, -80, 220
     )
-    _connect_property(roughness, unreal.MaterialProperty.MP_ROUGHNESS)
-    _connect_property(specular, unreal.MaterialProperty.MP_SPECULAR)
-    _connect_property(
-        ambient_occlusion, unreal.MaterialProperty.MP_AMBIENT_OCCLUSION
+    textured_roughness = _expression(
+        material, unreal.MaterialExpressionLinearInterpolate, 390, 690
     )
+    _connect(roughness, textured_roughness, "A")
+    _connect(packed_texture, textured_roughness, "B", "G")
+    _connect(packed_strength, textured_roughness, "Alpha")
+    textured_ao = _expression(
+        material, unreal.MaterialExpressionLinearInterpolate, 390, 800
+    )
+    _connect(ambient_occlusion, textured_ao, "A")
+    _connect(packed_texture, textured_ao, "B", "R")
+    _connect(packed_strength, textured_ao, "Alpha")
+    _connect_property(textured_roughness, unreal.MaterialProperty.MP_ROUGHNESS)
+    _connect_property(specular, unreal.MaterialProperty.MP_SPECULAR)
+    _connect_property(textured_ao, unreal.MaterialProperty.MP_AMBIENT_OCCLUSION)
 
     return material
 

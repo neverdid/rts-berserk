@@ -47,8 +47,17 @@ Visual foundation delivered:
 - Deterministic interaction collision preserved independently from visual terrain
 - Unreal regression coverage for required world assets and collision behavior
 
-Next graphics slice: replace each Engine proxy category with one coherent licensed or custom production
-environment kit, then convert the approved composition to an authored Landscape and spline workflow.
+Production-kit foundation delivered:
+
+- Thirty-three reproducible original Vowfall meshes now cover every environment proxy category
+- Optional production assets and PBR textures resolve through semantic slots with deterministic fallbacks
+- Project Titan has a license-safe curation policy, canonical intake manifest, and local audit workflow
+- Surface master supports base-color, normal, and packed AO/roughness texture sets without changing
+  gameplay collision
+
+Next graphics slice: acquire and curate the approved Project Titan subset, normalize the first rock,
+dead-forest, ground, road, bridge, and generic castle-material families, then compare production captures
+against the original Vowfall fallback kit.
 
 - Replace procedural proxy terrain with an authored competitive map using landscape, roads, bridges,
   river water, forests, cliffs, castles, landmarks, and faction-readable bases

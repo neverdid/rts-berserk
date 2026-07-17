@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AshenEnvironmentKit.h"
 #include "Math/Color.h"
 
 class UObject;
@@ -18,10 +19,15 @@ struct FSurfaceStyle
     float DetailStrength = 0.16f;
     float Specular = 0.25f;
     float AmbientOcclusion = 0.92f;
+    float TextureBlend = 0.88f;
+    float TextureTiling = 1.0f;
+    float NormalStrength = 0.68f;
+    float PackedStrength = 0.76f;
 };
 
 void Apply(UPrimitiveComponent *Component, UObject *Outer, const FLinearColor &Color, float Roughness);
-void ApplySurface(UPrimitiveComponent *Component, UObject *Outer, const FSurfaceStyle &Style);
+void ApplySurface(UPrimitiveComponent *Component, UObject *Outer, const FSurfaceStyle &Style,
+                  EAshenEnvironmentSurface Surface = EAshenEnvironmentSurface::None);
 void ApplyWater(UPrimitiveComponent *Component, UObject *Outer, const FLinearColor &ShallowColor,
                 const FLinearColor &DeepColor, float Opacity = 0.78f);
 } // namespace Ashen::Materials

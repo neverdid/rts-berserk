@@ -18,6 +18,9 @@ build
 !unreal/AshenDominion/Build/
 !unreal/AshenDominion/Build/WorldArt/
 !unreal/AshenDominion/Build/WorldArt/*.py
+!unreal/AshenDominion/Build/EnvironmentKit/
+!unreal/AshenDominion/Build/EnvironmentKit/*.py
+!unreal/AshenDominion/Build/EnvironmentKit/*.json
 out
 .vs
 CMakeUserPresets.json
@@ -30,6 +33,9 @@ unreal/AshenDominion/Saved
 unreal/AshenDominion/.vs
 unreal/AshenDominion/*.sln
 
+# Licensed Fab source assets are acquired by each collaborator and stay private.
+unreal/AshenDominion/Content/External/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -40,3 +46,5 @@ unreal/AshenDominion/*.sln
 *.njsproj
 *.sln
 *.sw?
+__pycache__/
+*.pyc
