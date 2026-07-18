@@ -4,6 +4,8 @@ set(ASHEN_CORE_MODULE_DIR
 
 add_library(ashen_core STATIC
   ${ASHEN_CORE_MODULE_DIR}/Private/Catalog.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/CommanderAI.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/PlayerObservation.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/Simulation.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/VisibilityGrid.cpp
 )

@@ -13,8 +13,8 @@ The repository now has two active production layers and one archived prototype:
   camera, edge scrolling and zoom, click and drag-box selection, contextual move/attack/gather commands,
   attack-move, patrol, retreat, stances, queued orders, control groups, worker construction, research,
   faction powers, resolve, authoritative fog of war, capture relics, production and rally queues, a
-  clickable command card, a deployment menu, tactical minimap, and a build-order-aware skirmish AI
-  commander. It also has two distinct multi-part faction silhouettes, and a procedural dark-medieval
+  clickable command card, a deployment menu, tactical minimap, and a core-owned, fog-constrained skirmish
+  commander that can control either player. It also has two distinct multi-part faction silhouettes, and a procedural dark-medieval
   battlefield with castles, forests, roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
   Unreal compile these exact same sources, so gameplay rules do not fork between clients.

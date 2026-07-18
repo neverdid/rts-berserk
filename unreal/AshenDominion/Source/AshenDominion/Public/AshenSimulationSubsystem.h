@@ -128,14 +128,12 @@ public:
 private:
     void StartMatch();
     void PrimeOpeningEconomy();
-    void UpdateEnemyCommander();
     void SyncWorldActors();
     bool StoreCommandResult(bool bOk, const FString& FailureMessage);
     FVector ToWorldPosition(int32 CoreX, int32 CoreY) const;
 
     FAshenSimulationRuntime* Runtime = nullptr;
     float Accumulator = 0.0f;
-    int64 LastEnemyDecisionTick = -1;
     bool bGameplayEnabled = false;
     FString LastCommandMessage;
     TMap<uint32, TWeakObjectPtr<AAshenEntityActor>> EntityActors;
