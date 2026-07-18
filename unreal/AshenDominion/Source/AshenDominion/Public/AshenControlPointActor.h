@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AshenTypes.h"
 #include "GameFramework/Actor.h"
 #include "AshenControlPointActor.generated.h"
 
@@ -18,6 +19,7 @@ public:
 
     void InitializeControlPoint(int32 InControlPointId, float Radius);
     void ApplySimulationState(const FVector& GroundPosition, int32 OwnerIndex, float Influence, int32 RuinTide);
+    void SetFogState(EAshenVisibility Visibility);
 
     UFUNCTION(BlueprintPure, Category = "Ashen")
     int32 GetControlPointId() const noexcept { return ControlPointId; }

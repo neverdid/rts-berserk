@@ -78,6 +78,12 @@ public:
     TArray<FAshenControlPointView> GetControlPointViews() const;
 
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    EAshenVisibility GetLocalVisibilityAt(const FVector& WorldPosition) const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
+    FAshenVisibilityGridView GetLocalVisibilityGrid() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ashen|State")
     TArray<FAshenResearchView> GetResearchViews(int32 ProducerId) const;
 
     UFUNCTION(BlueprintPure, Category = "Ashen|State")
@@ -135,4 +141,6 @@ private:
     TMap<uint32, TWeakObjectPtr<AAshenEntityActor>> EntityActors;
     TMap<uint32, TWeakObjectPtr<AAshenResourceActor>> ResourceActors;
     TMap<uint32, TWeakObjectPtr<AAshenControlPointActor>> ControlPointActors;
+    TMap<uint32, int32> KnownControlPointOwners;
+    TMap<uint32, float> KnownControlPointInfluence;
 };

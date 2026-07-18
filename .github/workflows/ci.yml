@@ -44,33 +44,3 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: print_stacktrace=1
         run: ctest --test-dir build/sanitize --output-on-failure
-
-  cross-runtime-parity:
-    name: Cross-runtime parity
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Configure native parity runner
-        run: cmake -S . -B build/parity -DASHEN_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build native parity runner
-        run: cmake --build build/parity --config Release --target ashen_parity_runner --parallel
-      - name: Compare TypeScript and C++ behavior
-        run: npm run test:parity
-
-  web-prototype:
-    name: Web prototype
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test -- --run
-      - run: npm run build

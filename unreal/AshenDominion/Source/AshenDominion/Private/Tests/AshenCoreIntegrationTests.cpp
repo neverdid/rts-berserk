@@ -75,6 +75,48 @@ bool FAshenCoreNavigationAndOrdersTest::RunTest(const FString &Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreAuthoritativeFogTest, "Ashen.Core.AuthoritativeFogOfWar",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreAuthoritativeFogTest::RunTest(const FString &Parameters)
+{
+    static_cast<void>(Parameters);
+    using namespace ashen::core;
+
+    SimulationConfig Config{};
+    Config.seed_starting_forces = false;
+    Simulation Match{Config};
+    const EntityId Attacker = Match.spawn_entity(PlayerId::One, EntityType::Vanguard, world(100, 700));
+    const EntityId Enemy = Match.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(1'250, 700));
+
+    const Command HiddenAttack{.player = PlayerId::One,
+                               .type = CommandType::Attack,
+                               .entities = {Attacker},
+                               .target_entity = Enemy};
+    TestFalse(TEXT("An unseen enemy cannot be targeted"), Match.execute_now(HiddenAttack).ok);
+    TestEqual(TEXT("Unscouted ground begins hidden"),
+              static_cast<uint8>(Match.visibility_state_at(world(1'250, 700), PlayerId::One)),
+              static_cast<uint8>(VisibilityState::Hidden));
+
+    static_cast<void>(Match.spawn_entity(PlayerId::One, EntityType::Command, world(1'000, 700)));
+    TestTrue(TEXT("A friendly observer reveals the enemy"),
+             Match.is_entity_visible_to(*Match.find_entity(Enemy), PlayerId::One));
+    TestTrue(TEXT("The same attack is accepted after scouting"), Match.execute_now(HiddenAttack).ok);
+
+    TestTrue(TEXT("The enemy can withdraw"),
+             Match.execute_now(Command{.player = PlayerId::Two,
+                                       .type = CommandType::Move,
+                                       .entities = {Enemy},
+                                       .target = world(1'800, 700)})
+                 .ok);
+    Match.run(80);
+    TestFalse(TEXT("The enemy leaves current vision"),
+              Match.is_entity_visible_to(*Match.find_entity(Enemy), PlayerId::One));
+    TestEqual(TEXT("Pursuit ends when contact is lost"), static_cast<uint8>(Match.find_entity(Attacker)->order.type),
+              static_cast<uint8>(OrderType::Idle));
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenWorldVisualFoundationTest, "Ashen.World.VisualFoundation",
                                  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

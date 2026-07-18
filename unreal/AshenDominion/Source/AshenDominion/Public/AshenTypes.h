@@ -34,6 +34,32 @@ enum class EAshenStance : uint8
     Hold,
 };
 
+UENUM(BlueprintType)
+enum class EAshenVisibility : uint8
+{
+    Hidden,
+    Explored,
+    Visible,
+};
+
+USTRUCT(BlueprintType)
+struct FAshenVisibilityGridView
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    int32 Columns = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    int32 Rows = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    float CellWorldSize = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    TArray<EAshenVisibility> Cells;
+};
+
 USTRUCT(BlueprintType)
 struct FAshenPlayerView
 {
@@ -122,6 +148,9 @@ struct FAshenControlPointView
 
     UPROPERTY(BlueprintReadOnly, Category = "Ashen")
     float Influence = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Ashen")
+    EAshenVisibility Visibility = EAshenVisibility::Hidden;
 };
 
 USTRUCT(BlueprintType)

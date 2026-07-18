@@ -87,3 +87,11 @@ void AAshenResourceActor::ApplySimulationState(const FVector& GroundPosition)
 {
     SetActorLocation(GroundPosition);
 }
+
+void AAshenResourceActor::SetFogState(const EAshenVisibility Visibility)
+{
+    const bool bDiscovered = Visibility != EAshenVisibility::Hidden;
+    SetActorHiddenInGame(!bDiscovered);
+    ResourceMesh->SetCollisionEnabled(bDiscovered ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+    ResourceLight->SetVisibility(Visibility == EAshenVisibility::Visible);
+}

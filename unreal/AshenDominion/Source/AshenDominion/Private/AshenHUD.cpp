@@ -448,6 +448,38 @@ void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
                  MapWidth * 0.12f, 3.0f);
     }
 
+    const FAshenVisibilityGridView Visibility = Simulation.GetLocalVisibilityGrid();
+    if (Visibility.Columns > 0 && Visibility.Rows > 0 &&
+        Visibility.Cells.Num() == Visibility.Columns * Visibility.Rows)
+    {
+        const float CellWidth = MapWidth / static_cast<float>(Visibility.Columns);
+        const float CellHeight = MapHeight / static_cast<float>(Visibility.Rows);
+        for (int32 Row = 0; Row < Visibility.Rows; ++Row)
+        {
+            int32 Column = 0;
+            while (Column < Visibility.Columns)
+            {
+                const EAshenVisibility State = Visibility.Cells[Row * Visibility.Columns + Column];
+                int32 RunEnd = Column + 1;
+                while (RunEnd < Visibility.Columns &&
+                       Visibility.Cells[Row * Visibility.Columns + RunEnd] == State)
+                {
+                    ++RunEnd;
+                }
+                if (State != EAshenVisibility::Visible)
+                {
+                    const FLinearColor FogColor = State == EAshenVisibility::Hidden
+                                                      ? FLinearColor(0.002f, 0.003f, 0.004f, 0.94f)
+                                                      : FLinearColor(0.008f, 0.012f, 0.012f, 0.56f);
+                    DrawRect(FogColor, MapX + static_cast<float>(Column) * CellWidth,
+                             MapY + static_cast<float>(Row) * CellHeight,
+                             static_cast<float>(RunEnd - Column) * CellWidth + 0.25f, CellHeight + 0.25f);
+                }
+                Column = RunEnd;
+            }
+        }
+    }
+
     for (TActorIterator<AAshenEntityActor> It(GetWorld()); It; ++It)
     {
         const AAshenEntityActor* Entity = *It;
@@ -469,6 +501,10 @@ void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
 
     for (const FAshenControlPointView& Point : Simulation.GetControlPointViews())
     {
+        if (Point.Visibility == EAshenVisibility::Hidden)
+        {
+            continue;
+        }
         constexpr float DotSize = 6.0f;
         const float DotX = MapX + FMath::Clamp(Point.WorldPosition.X / Ashen::WorldLayout::Width, 0.0f, 1.0f) *
                                              MapWidth -
@@ -476,7 +512,12 @@ void AAshenHUD::DrawTacticalMap(const UAshenSimulationSubsystem& Simulation)
         const float DotY = MapY + FMath::Clamp(Point.WorldPosition.Y / Ashen::WorldLayout::Height, 0.0f, 1.0f) *
                                              MapHeight -
                            3.0f;
-        const FLinearColor PointColor = Point.OwnerIndex == 0 ? Bronze : Point.OwnerIndex == 1 ? Blood : Bone;
+        FLinearColor PointColor = Point.OwnerIndex == 0 ? Bronze : Point.OwnerIndex == 1 ? Blood : Bone;
+        if (Point.Visibility == EAshenVisibility::Explored)
+        {
+            PointColor *= 0.58f;
+            PointColor.A = 0.82f;
+        }
         DrawRect(PointColor, DotX, DotY, DotSize, DotSize);
     }
 

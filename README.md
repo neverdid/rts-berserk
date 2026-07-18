@@ -7,21 +7,20 @@ characters, names, or assets from other games or manga.
 
 ## Project status
 
-The repository now has three cooperating layers:
+The repository now has two active production layers and one archived prototype:
 
 - `unreal/AshenDominion/` is the playable Unreal Engine 5.8 C++ client. It currently provides an RTS
   camera, edge scrolling and zoom, click and drag-box selection, contextual move/attack/gather commands,
   attack-move, patrol, retreat, stances, queued orders, control groups, worker construction, research,
-  faction powers, resolve, fog of war, capture relics, production and rally queues, a clickable command
-  card, a deployment menu, tactical minimap, and a build-order-aware skirmish AI commander. It also has two distinct
-  multi-part faction silhouettes, and a procedural dark-medieval battlefield with castles, forests,
-  roads, bridges, a contested island, and shader-driven river water.
+  faction powers, resolve, authoritative fog of war, capture relics, production and rally queues, a
+  clickable command card, a deployment menu, tactical minimap, and a build-order-aware skirmish AI
+  commander. It also has two distinct multi-part faction silhouettes, and a procedural dark-medieval
+  battlefield with castles, forests, roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
   Unreal compile these exact same sources, so gameplay rules do not fork between clients.
-- `src/` is the playable TypeScript/Three.js reference slice. It currently contains all three Vowfall
-  factions, three campaign prologues, real worker economies, macro-capable AI personalities, faction
-  doctrines, terrain rules, fog, control points, responsive command UI, and a procedural 3D battlefield.
-  It remains the interaction, balance, story, and presentation reference while Unreal reaches parity.
+- `src/` is the frozen TypeScript/Three.js prototype retained for design provenance. It is not an active
+  client, gameplay authority, parity target, or CI requirement. New gameplay, AI, presentation, and
+  testing work belongs in Unreal and `AshenCore`.
 
 The Unreal directory and C++ module retain the internal name `AshenDominion` for now. Renaming Unreal
 targets, generated files, and module symbols is a separate migration so the playable native foundation
@@ -141,33 +140,14 @@ ctest --preset dev -C Debug
 The generated `ashen_headless` executable advances a match without graphics and prints its final tick,
 economy, result, and deterministic state hash.
 
-## Web reference
+## Archived web prototype
 
-```bash
-npm ci
-npm run dev
-```
-
-Tests and production build:
-
-```bash
-npm test -- --run
-npm run build
-npm run test:visual
-```
-
-After building the portable core, run the cross-runtime contract suite:
-
-```bash
-npm run test:parity
-```
-
-The parity suite authors each scenario once, executes it in both TypeScript and C++, and compares the
-shared catalog plus canonical movement, economy, production, combat, supply, and victory checkpoints.
-GitHub Actions runs this gate on every push and pull request.
+The `src/` and TypeScript tooling remain in source control only as a historical reference. They are no
+longer part of the supported build, test, or release path.
 
 See [docs/cpp-migration.md](docs/cpp-migration.md) for ownership boundaries and the remaining migration
-stages, [docs/research-brief.md](docs/research-brief.md) for the genre and market findings, and
+stages, [docs/ai-architecture.md](docs/ai-architecture.md) for the ordered non-cheating AI plan,
+[docs/research-brief.md](docs/research-brief.md) for the genre and market findings, and
 [docs/world-bible.md](docs/world-bible.md) for the original setting, characters, factions, campaign,
 visual direction, and source-safe inspiration ledger. The ordered path from the current foundation to
 beta is tracked in [docs/beta-roadmap.md](docs/beta-roadmap.md).

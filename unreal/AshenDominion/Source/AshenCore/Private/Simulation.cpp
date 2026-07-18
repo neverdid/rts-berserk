@@ -142,6 +142,9 @@ void Simulation::reset(const SimulationConfig& config) {
   players_ = {PlayerState{PlayerId::One, config.player_one_faction},
               PlayerState{PlayerId::Two, config.player_two_faction}};
   command_seen_.fill(false);
+  for (auto& grid : visibility_) {
+    grid.reset(config_.map_size, config_.visibility_cell_size);
+  }
   entities_.clear();
   resources_.clear();
   control_points_.clear();
@@ -231,6 +234,7 @@ void Simulation::step() {
   update_auto_aggro();
   update_defenses();
   remove_dead_entities();
+  refresh_visibility();
   update_match_status();
   ++tick_;
 }
@@ -288,6 +292,7 @@ EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, c
   }
 
   entities_.push_back(std::move(entity));
+  refresh_visibility();
   return entities_.back().id;
 }
 
@@ -405,8 +410,9 @@ CommandResult Simulation::apply_move(const Command& command) {
 
 CommandResult Simulation::apply_attack(const Command& command) {
   const auto* target = find_entity(command.target_entity);
-  if (target == nullptr || target->owner == command.player) {
-    return failure(CommandError::InvalidTarget, "The attack target is invalid.");
+  if (target == nullptr || !target->alive() || target->owner == command.player ||
+      !is_entity_visible_to(*target, command.player)) {
+    return failure(CommandError::InvalidTarget, "No visible enemy target.");
   }
   if (const auto validation = validate_units(*this, command); !validation) {
     return validation;
@@ -1169,7 +1175,8 @@ bool Simulation::move_along_route(Entity& entity, Vec2 target) {
 
 bool Simulation::attack_target(Entity& entity, const bool chase) {
   auto* target = find_entity_mutable(entity.order.target_entity);
-  if (target == nullptr || target->owner == entity.owner) {
+  if (target == nullptr || target->owner == entity.owner || !target->alive() ||
+      !is_entity_visible_to(*target, entity.owner)) {
     entity.order.target_entity = {};
     clear_route(entity.order);
     return false;
@@ -1198,7 +1205,7 @@ EntityId Simulation::nearest_enemy(const PlayerId owner, const Vec2 position,
   EntityId result{};
   auto best_distance = std::numeric_limits<std::uint64_t>::max();
   for (const auto& candidate : entities_) {
-    if (!candidate.alive() || candidate.owner == owner) {
+    if (!candidate.alive() || candidate.owner == owner || !is_entity_visible_to(candidate, owner)) {
       continue;
     }
     const auto reach = static_cast<std::int64_t>(acquisition_range) + candidate.radius;
@@ -1617,22 +1624,44 @@ std::int32_t Simulation::queued_supply(const PlayerId owner) const noexcept {
   return total;
 }
 
-bool Simulation::is_position_visible_to(const Vec2 position, const PlayerId owner,
-                                        const std::int32_t buffer) const noexcept {
+const VisibilityGrid& Simulation::visibility(const PlayerId owner) const noexcept {
+  return visibility_[player_index(owner)];
+}
+
+VisibilityState Simulation::visibility_state_at(const Vec2 position, const PlayerId owner) const noexcept {
+  return visibility(owner).state_at(position);
+}
+
+std::vector<EntityId> Simulation::visible_enemy_ids(const PlayerId observer) const {
+  std::vector<EntityId> result;
+  result.reserve(entities_.size());
   for (const auto& entity : entities_) {
-    if (!entity.alive() || entity.owner != owner || entity.under_construction) {
-      continue;
-    }
-    const auto reach = static_cast<std::int64_t>(entity.sight) + buffer;
-    if (squared_distance(entity.position, position) <= static_cast<std::uint64_t>(reach * reach)) {
-      return true;
+    if (entity.alive() && entity.owner != observer && is_entity_visible_to(entity, observer)) {
+      result.push_back(entity.id);
     }
   }
-  return false;
+  return result;
+}
+
+bool Simulation::is_position_visible_to(const Vec2 position, const PlayerId owner,
+                                         const std::int32_t buffer) const noexcept {
+  return visibility(owner).overlaps_visible(position, std::max(0, buffer));
 }
 
 bool Simulation::is_entity_visible_to(const Entity& entity, const PlayerId owner) const noexcept {
   return entity.owner == owner || is_position_visible_to(entity.position, owner, entity.radius);
+}
+
+void Simulation::refresh_visibility() noexcept {
+  for (auto& grid : visibility_) {
+    grid.begin_update();
+  }
+  for (const auto& entity : entities_) {
+    if (!entity.alive() || entity.under_construction) {
+      continue;
+    }
+    visibility_[player_index(entity.owner)].reveal(entity.position, entity.sight);
+  }
 }
 
 bool Simulation::can_place_building(const Vec2 position, const EntityType type) const noexcept {
@@ -1746,6 +1775,7 @@ std::uint64_t Simulation::state_hash() const noexcept {
   hash_integral(hash, static_cast<std::uint8_t>(config_.player_one_faction));
   hash_integral(hash, static_cast<std::uint8_t>(config_.player_two_faction));
   hash_vec(hash, config_.map_size);
+  hash_integral(hash, config_.visibility_cell_size);
   hash_integral(hash, config_.navigation_cell_size);
   hash_integral(hash, config_.navigation_obstacles.size());
   for (const auto& obstacle : config_.navigation_obstacles) {
@@ -1761,6 +1791,14 @@ std::uint64_t Simulation::state_hash() const noexcept {
   hash_integral(hash, ruin_tide_);
   for (const auto seen : command_seen_) {
     hash_integral(hash, seen);
+  }
+  for (const auto& grid : visibility_) {
+    hash_integral(hash, grid.cell_size());
+    hash_integral(hash, grid.columns());
+    hash_integral(hash, grid.rows());
+    for (const auto state : grid.cells()) {
+      hash_integral(hash, static_cast<std::uint8_t>(state));
+    }
   }
 
   for (const auto& player_state : players_) {

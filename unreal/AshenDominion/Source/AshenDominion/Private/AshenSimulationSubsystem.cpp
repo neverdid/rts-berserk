@@ -93,6 +93,11 @@ EAshenStance ToStance(const ashen::core::UnitStance Stance)
     return static_cast<EAshenStance>(Stance);
 }
 
+EAshenVisibility ToVisibility(const ashen::core::VisibilityState Visibility)
+{
+    return static_cast<EAshenVisibility>(Visibility);
+}
+
 FString CoreText(const std::string_view Text)
 {
     return FString(UTF8_TO_TCHAR(Text.data()));
@@ -122,6 +127,8 @@ void UAshenSimulationSubsystem::Deinitialize()
     EntityActors.Reset();
     ResourceActors.Reset();
     ControlPointActors.Reset();
+    KnownControlPointOwners.Reset();
+    KnownControlPointInfluence.Reset();
     Super::Deinitialize();
 }
 
@@ -494,6 +501,11 @@ FAshenEntityView UAshenSimulationSubsystem::GetEntityView(const int32 EntityId) 
     {
         return View;
     }
+    if (Entity->owner != ashen::core::PlayerId::One &&
+        !Runtime->Simulation.is_entity_visible_to(*Entity, ashen::core::PlayerId::One))
+    {
+        return View;
+    }
     View.EntityId = EntityId;
     View.Archetype = ToArchetype(Entity->type);
     View.Label = CoreText(ashen::core::entity_definition(Runtime->Simulation.player(Entity->owner).faction,
@@ -530,10 +542,44 @@ TArray<FAshenControlPointView> UAshenSimulationSubsystem::GetControlPointViews()
         FAshenControlPointView& View = Views.AddDefaulted_GetRef();
         View.ControlPointId = static_cast<int32>(Point.id.value);
         View.WorldPosition = ToWorldPosition(Point.position.x, Point.position.y);
-        View.OwnerIndex = Point.owner.has_value() ? static_cast<int32>(*Point.owner) : -1;
-        View.Influence = static_cast<float>(Point.influence) / 10'000.0f;
+        View.Visibility = ToVisibility(Runtime->Simulation.visibility_state_at(
+            Point.position, ashen::core::PlayerId::One));
+        const int32* KnownOwner = KnownControlPointOwners.Find(Point.id.value);
+        const float* KnownInfluence = KnownControlPointInfluence.Find(Point.id.value);
+        View.OwnerIndex = KnownOwner != nullptr ? *KnownOwner : -1;
+        View.Influence = KnownInfluence != nullptr ? *KnownInfluence : 0.0f;
     }
     return Views;
+}
+
+EAshenVisibility UAshenSimulationSubsystem::GetLocalVisibilityAt(const FVector& WorldPosition) const
+{
+    if (Runtime == nullptr)
+    {
+        return EAshenVisibility::Hidden;
+    }
+    return ToVisibility(Runtime->Simulation.visibility_state_at(
+        ToCorePosition(WorldPosition), ashen::core::PlayerId::One));
+}
+
+FAshenVisibilityGridView UAshenSimulationSubsystem::GetLocalVisibilityGrid() const
+{
+    FAshenVisibilityGridView View{};
+    if (Runtime == nullptr)
+    {
+        return View;
+    }
+
+    const ashen::core::VisibilityGrid& Grid = Runtime->Simulation.visibility(ashen::core::PlayerId::One);
+    View.Columns = Grid.columns();
+    View.Rows = Grid.rows();
+    View.CellWorldSize = static_cast<float>(Grid.cell_size()) / ashen::core::kWorldScale * RenderScale;
+    View.Cells.Reserve(static_cast<int32>(Grid.cells().size()));
+    for (const ashen::core::VisibilityState State : Grid.cells())
+    {
+        View.Cells.Add(ToVisibility(State));
+    }
+    return View;
 }
 
 TArray<FAshenResearchView> UAshenSimulationSubsystem::GetResearchViews(const int32 ProducerId) const
@@ -614,7 +660,16 @@ int64 UAshenSimulationSubsystem::GetSimulationTick() const
 
 int32 UAshenSimulationSubsystem::GetEntityCount() const
 {
-    return Runtime == nullptr ? 0 : static_cast<int32>(Runtime->Simulation.entities().size());
+    if (Runtime == nullptr)
+    {
+        return 0;
+    }
+    const int32 Owned = static_cast<int32>(std::ranges::count_if(
+        Runtime->Simulation.entities(), [](const ashen::core::Entity& Entity)
+        {
+            return Entity.owner == ashen::core::PlayerId::One;
+        }));
+    return Owned + static_cast<int32>(Runtime->Simulation.visible_enemy_ids(ashen::core::PlayerId::One).size());
 }
 
 EAshenEntityArchetype UAshenSimulationSubsystem::GetEntityArchetype(const int32 EntityId) const
@@ -624,7 +679,11 @@ EAshenEntityArchetype UAshenSimulationSubsystem::GetEntityArchetype(const int32 
         if (const auto* Entity = Runtime->Simulation.find_entity(
                 ashen::core::EntityId{static_cast<uint32>(EntityId)}))
         {
-            return ToArchetype(Entity->type);
+            if (Entity->owner == ashen::core::PlayerId::One ||
+                Runtime->Simulation.is_entity_visible_to(*Entity, ashen::core::PlayerId::One))
+            {
+                return ToArchetype(Entity->type);
+            }
         }
     }
     return EAshenEntityArchetype::Worker;
@@ -637,7 +696,8 @@ FString UAshenSimulationSubsystem::GetEntityOrderLabel(const int32 EntityId) con
         return TEXT("IDLE");
     }
     const auto* Entity = Runtime->Simulation.find_entity(ashen::core::EntityId{static_cast<uint32>(EntityId)});
-    if (Entity == nullptr)
+    if (Entity == nullptr || (Entity->owner != ashen::core::PlayerId::One &&
+                              !Runtime->Simulation.is_entity_visible_to(*Entity, ashen::core::PlayerId::One)))
     {
         return TEXT("IDLE");
     }
@@ -673,7 +733,8 @@ TArray<FVector> UAshenSimulationSubsystem::GetEntityRoute(const int32 EntityId) 
         return Route;
     }
     const auto* Entity = Runtime->Simulation.find_entity(ashen::core::EntityId{static_cast<uint32>(EntityId)});
-    if (Entity == nullptr)
+    if (Entity == nullptr || (Entity->owner != ashen::core::PlayerId::One &&
+                              !Runtime->Simulation.is_entity_visible_to(*Entity, ashen::core::PlayerId::One)))
     {
         return Route;
     }
@@ -751,6 +812,8 @@ void UAshenSimulationSubsystem::StartMatch()
     Accumulator = 0.0f;
     LastEnemyDecisionTick = -1;
     LastCommandMessage.Reset();
+    KnownControlPointOwners.Reset();
+    KnownControlPointInfluence.Reset();
     bGameplayEnabled = false;
     UE_LOG(LogAshenSimulation, Display,
            TEXT("Match started: %d entities, %d resource fields, %d fixed ticks/sec"),
@@ -844,9 +907,14 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
                 Turret = &EntityState;
             }
         }
-        else if (EntityState.type == EntityType::Command)
+    }
+    for (const EntityId EnemyId : Runtime->Simulation.visible_enemy_ids(PlayerId::Two))
+    {
+        const Entity* ObservedEnemy = Runtime->Simulation.find_entity(EnemyId);
+        if (ObservedEnemy != nullptr && ObservedEnemy->type == EntityType::Command)
         {
-            HumanCommand = &EntityState;
+            HumanCommand = ObservedEnemy;
+            break;
         }
     }
 
@@ -974,11 +1042,17 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
         const ControlPoint* TargetPoint = nullptr;
         for (const ControlPoint& Point : Runtime->Simulation.control_points())
         {
-            if (Point.owner != PlayerId::Two)
+            if (Runtime->Simulation.visibility_state_at(Point.position, PlayerId::Two) == VisibilityState::Visible &&
+                Point.owner != PlayerId::Two)
             {
                 TargetPoint = &Point;
                 break;
             }
+        }
+        if (TargetPoint == nullptr && !Runtime->Simulation.control_points().empty())
+        {
+            const size_t ScoutIndex = static_cast<size_t>(Tick / 480) % Runtime->Simulation.control_points().size();
+            TargetPoint = &Runtime->Simulation.control_points()[ScoutIndex];
         }
         if (TargetPoint != nullptr)
         {
@@ -1011,8 +1085,10 @@ void UAshenSimulationSubsystem::UpdateEnemyCommander()
         Assault.type = CommandType::Attack;
         Assault.entities = std::move(Army);
         Assault.target_entity = HumanCommand->id;
-        static_cast<void>(Runtime->Simulation.execute_now(std::move(Assault)));
-        UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy launches an assault at tick %lld"), Tick);
+        if (Runtime->Simulation.execute_now(std::move(Assault)).ok)
+        {
+            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy launches an assault at tick %lld"), Tick);
+        }
     }
 }
 
@@ -1085,6 +1161,8 @@ void UAshenSimulationSubsystem::SyncWorldActors()
                                       static_cast<float>(Resource.radius) / ashen::core::kWorldScale * RenderScale);
         }
         Actor->ApplySimulationState(ToWorldPosition(Resource.position.x, Resource.position.y));
+        Actor->SetFogState(ToVisibility(Runtime->Simulation.visibility_state_at(
+            Resource.position, ashen::core::PlayerId::One)));
     }
 
     TSet<uint32> LiveControlPoints;
@@ -1103,10 +1181,22 @@ void UAshenSimulationSubsystem::SyncWorldActors()
             Actor->InitializeControlPoint(static_cast<int32>(Point.id.value),
                                           static_cast<float>(Point.radius) / ashen::core::kWorldScale * RenderScale);
         }
+        const ashen::core::VisibilityState Visibility = Runtime->Simulation.visibility_state_at(
+            Point.position, ashen::core::PlayerId::One);
+        if (Visibility == ashen::core::VisibilityState::Visible)
+        {
+            KnownControlPointOwners.Add(Point.id.value,
+                                        Point.owner.has_value() ? static_cast<int32>(*Point.owner) : -1);
+            KnownControlPointInfluence.Add(Point.id.value,
+                                           static_cast<float>(Point.influence) / 10'000.0f);
+        }
+        const int32* KnownOwner = KnownControlPointOwners.Find(Point.id.value);
+        const float* KnownInfluence = KnownControlPointInfluence.Find(Point.id.value);
         Actor->ApplySimulationState(ToWorldPosition(Point.position.x, Point.position.y),
-                                    Point.owner.has_value() ? static_cast<int32>(*Point.owner) : -1,
-                                    static_cast<float>(Point.influence) / 10'000.0f,
+                                    KnownOwner != nullptr ? *KnownOwner : -1,
+                                    KnownInfluence != nullptr ? *KnownInfluence : 0.0f,
                                     Runtime->Simulation.ruin_tide());
+        Actor->SetFogState(ToVisibility(Visibility));
     }
 
     TArray<uint32> ControlKeys;
