@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ashen/core/Types.hpp"
+#include "ashen/core/VisibilityGrid.hpp"
 
 #include <array>
 #include <cstdint>
@@ -38,8 +39,11 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] const ResourceNode* find_resource(ResourceId id) const noexcept;
   [[nodiscard]] const ControlPoint* find_control_point(ControlPointId id) const noexcept;
   [[nodiscard]] std::int32_t ruin_tide() const noexcept { return ruin_tide_; }
+  [[nodiscard]] const VisibilityGrid& visibility(PlayerId owner) const noexcept;
+  [[nodiscard]] VisibilityState visibility_state_at(Vec2 position, PlayerId owner) const noexcept;
+  [[nodiscard]] std::vector<EntityId> visible_enemy_ids(PlayerId observer) const;
   [[nodiscard]] bool is_position_visible_to(Vec2 position, PlayerId owner,
-                                            std::int32_t buffer = 0) const noexcept;
+                                             std::int32_t buffer = 0) const noexcept;
   [[nodiscard]] bool is_entity_visible_to(const Entity& entity, PlayerId owner) const noexcept;
   [[nodiscard]] bool can_place_building(Vec2 position, EntityType type) const noexcept;
   [[nodiscard]] bool has_research(PlayerId owner, ResearchId research) const noexcept;
@@ -81,6 +85,7 @@ class ASHENCORE_API Simulation final {
   void update_attack_move(Entity& entity);
   void update_patrol(Entity& entity);
   void update_hold(Entity& entity);
+  void refresh_visibility() noexcept;
   void resolve_unit_separation();
   void remove_dead_entities();
   void update_match_status();
@@ -107,6 +112,7 @@ class ASHENCORE_API Simulation final {
   std::optional<PlayerId> winner_{};
   std::array<PlayerState, 2> players_{};
   std::array<bool, 2> command_seen_{};
+  std::array<VisibilityGrid, 2> visibility_{};
   std::vector<Entity> entities_{};
   std::vector<ResourceNode> resources_{};
   std::vector<ControlPoint> control_points_{};

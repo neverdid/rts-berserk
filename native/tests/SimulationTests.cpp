@@ -598,6 +598,98 @@ void control_points_capture_and_generate_income() {
   CHECK(simulation.find_control_point(point)->influence == frozen_influence);
 }
 
+void fog_of_war_tracks_hidden_explored_and_visible_ground() {
+  auto simulation = sandbox();
+  const auto scout = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(100, 100));
+  const auto distant_ground = world(800, 100);
+
+  CHECK(simulation.visibility_state_at(distant_ground, PlayerId::One) == VisibilityState::Hidden);
+  CHECK(!simulation.is_position_visible_to(distant_ground, PlayerId::One));
+  CHECK(simulation.visibility(PlayerId::One).cells().size() ==
+        static_cast<std::size_t>(simulation.visibility(PlayerId::One).columns()) *
+            static_cast<std::size_t>(simulation.visibility(PlayerId::One).rows()));
+
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {scout},
+                                       .target = distant_ground})
+            .ok);
+  simulation.run(220);
+  CHECK(simulation.visibility_state_at(distant_ground, PlayerId::One) == VisibilityState::Visible);
+
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {scout},
+                                       .target = world(100, 100)})
+            .ok);
+  simulation.run(220);
+  CHECK(simulation.visibility_state_at(distant_ground, PlayerId::One) == VisibilityState::Explored);
+  CHECK(!simulation.is_position_visible_to(distant_ground, PlayerId::One));
+  CHECK(simulation.visibility_state_at(world(2'500, 1'500), PlayerId::One) == VisibilityState::Hidden);
+  CHECK(!simulation.is_position_visible_to(world(2'500, 1'500), PlayerId::One));
+}
+
+void hidden_targets_cannot_be_commanded_or_pursued() {
+  auto simulation = sandbox();
+  const auto attacker = simulation.spawn_entity(PlayerId::One, EntityType::Vanguard, world(100, 700));
+  const auto target = simulation.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(1'250, 700));
+
+  const auto hidden_attack = simulation.execute_now(Command{.player = PlayerId::One,
+                                                             .type = CommandType::Attack,
+                                                             .entities = {attacker},
+                                                             .target_entity = target});
+  CHECK(!hidden_attack.ok);
+  CHECK(hidden_attack.error == CommandError::InvalidTarget);
+  CHECK(simulation.visible_enemy_ids(PlayerId::One).empty());
+
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command, world(1'000, 700)));
+  CHECK(simulation.is_entity_visible_to(*simulation.find_entity(target), PlayerId::One));
+  const auto visible_enemies = simulation.visible_enemy_ids(PlayerId::One);
+  CHECK(std::ranges::find(visible_enemies, target) != visible_enemies.end());
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Attack,
+                                       .entities = {attacker},
+                                       .target_entity = target})
+            .ok);
+
+  CHECK(simulation.execute_now(Command{.player = PlayerId::Two,
+                                       .type = CommandType::Move,
+                                       .entities = {target},
+                                       .target = world(1'800, 700)})
+            .ok);
+  simulation.run(80);
+
+  const auto* escaped = simulation.find_entity(target);
+  const auto* pursuer = simulation.find_entity(attacker);
+  CHECK(escaped != nullptr && !simulation.is_entity_visible_to(*escaped, PlayerId::One));
+  CHECK(escaped != nullptr && escaped->hit_points == escaped->max_hit_points);
+  CHECK(pursuer != nullptr && pursuer->order.type == OrderType::Idle);
+  CHECK(simulation.visible_enemy_ids(PlayerId::One).empty());
+}
+
+void autonomous_orders_ignore_enemies_outside_current_vision() {
+  SimulationConfig config{};
+  config.seed_starting_forces = false;
+  config.visibility_cell_size = world(4, 0).x;
+  Simulation simulation{config};
+  const auto attacker = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(100, 100));
+  const auto hidden_enemy = simulation.spawn_entity(PlayerId::Two, EntityType::Worker, world(325, 100));
+  const auto enemy_health = simulation.find_entity(hidden_enemy)->hit_points;
+
+  CHECK(!simulation.is_entity_visible_to(*simulation.find_entity(hidden_enemy), PlayerId::One));
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::AttackMove,
+                                       .entities = {attacker},
+                                       .target = world(500, 100)})
+            .ok);
+  simulation.step();
+
+  const auto* advancing = simulation.find_entity(attacker);
+  CHECK(advancing != nullptr && advancing->order.type == OrderType::AttackMove);
+  CHECK(advancing != nullptr && !advancing->order.target_entity);
+  CHECK(simulation.find_entity(hidden_enemy)->hit_points == enemy_health);
+}
+
 void tide_resolve_and_visibility_are_authoritative() {
   auto simulation = sandbox(FactionId::Compact, FactionId::Ascendancy);
   const auto scout = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(100, 100));
@@ -650,6 +742,11 @@ int main() {
            research_unlocks_units_and_refreshes_existing_troops);
   run_test("faction powers are distinct and obey cooldowns", faction_powers_are_distinct_and_obey_cooldowns);
   run_test("control points capture and generate income", control_points_capture_and_generate_income);
+  run_test("fog of war tracks hidden, explored, and visible ground",
+           fog_of_war_tracks_hidden_explored_and_visible_ground);
+  run_test("hidden targets cannot be commanded or pursued", hidden_targets_cannot_be_commanded_or_pursued);
+  run_test("autonomous orders ignore enemies outside current vision",
+           autonomous_orders_ignore_enemies_outside_current_vision);
   run_test("Tide, resolve, and visibility are authoritative", tide_resolve_and_visibility_are_authoritative);
 
   if (failures != 0) {

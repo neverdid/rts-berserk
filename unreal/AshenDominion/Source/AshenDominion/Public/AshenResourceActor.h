@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AshenTypes.h"
 #include "GameFramework/Actor.h"
 #include "AshenResourceActor.generated.h"
 
@@ -16,6 +17,7 @@ public:
     AAshenResourceActor();
     void InitializeResource(int32 InResourceId, float Radius);
     void ApplySimulationState(const FVector& GroundPosition);
+    void SetFogState(EAshenVisibility Visibility);
 
     UFUNCTION(BlueprintPure, Category = "Ashen")
     int32 GetResourceId() const noexcept { return ResourceId; }

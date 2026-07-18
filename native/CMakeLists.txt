@@ -5,6 +5,7 @@ set(ASHEN_CORE_MODULE_DIR
 add_library(ashen_core STATIC
   ${ASHEN_CORE_MODULE_DIR}/Private/Catalog.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/Simulation.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/VisibilityGrid.cpp
 )
 
 target_include_directories(ashen_core

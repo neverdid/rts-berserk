@@ -110,6 +110,12 @@ void AAshenControlPointActor::ApplySimulationState(const FVector& GroundPosition
     Reliquary->SetRelativeScale3D(FVector(0.30f, 0.30f, 0.38f) * FMath::Lerp(0.86f, 1.16f, Pressure));
 }
 
+void AAshenControlPointActor::SetFogState(const EAshenVisibility Visibility)
+{
+    SetActorHiddenInGame(Visibility == EAshenVisibility::Hidden);
+    RelicLight->SetVisibility(Visibility == EAshenVisibility::Visible);
+}
+
 UStaticMeshComponent* AAshenControlPointActor::CreatePart(UStaticMesh* Mesh, const FVector& Location,
                                                            const FVector& Scale, const FRotator& Rotation,
                                                            const FLinearColor& Color, const float Roughness)

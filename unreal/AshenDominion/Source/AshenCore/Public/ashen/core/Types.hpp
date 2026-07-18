@@ -55,6 +55,7 @@ enum class PlayerId : std::uint8_t { One, Two };
 enum class FactionId : std::uint8_t { Compact, Ascendancy, Concord };
 enum class MatchMode : std::uint8_t { Story, Skirmish, PvP };
 enum class MatchStatus : std::uint8_t { Playing, Won, Lost };
+enum class VisibilityState : std::uint8_t { Hidden, Explored, Visible };
 enum class EntityKind : std::uint8_t { Unit, Building };
 enum class EntityType : std::uint8_t { Worker, Vanguard, Skirmisher, Command, Barracks, Turret };
 enum class ArmorClass : std::uint8_t { Laborer, Armored, Light, Structure };
@@ -267,6 +268,7 @@ struct SimulationConfig {
   FactionId player_one_faction{FactionId::Compact};
   FactionId player_two_faction{FactionId::Ascendancy};
   Vec2 map_size{world(2'400, 1'400)};
+  std::int32_t visibility_cell_size{world(24, 0).x};
   std::int32_t navigation_cell_size{world(36, 0).x};
   std::vector<NavigationObstacle> navigation_obstacles{
       // River banks leave three broad, readable crossings.
