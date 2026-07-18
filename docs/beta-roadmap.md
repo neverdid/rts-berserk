@@ -7,18 +7,18 @@ does not outrun the gameplay, networking, and validation systems that must suppo
 
 - Original Vowfall identity, three-faction world bible, campaign spine, visual language, and source-safe
   inspiration ledger
-- Playable TypeScript interaction and balance reference
+- Archived TypeScript interaction reference, frozen after the native migration
 - Portable deterministic C++ core and playable Unreal foundation
 
-## 1. Cross-runtime parity gate - complete
+## 1. Native authority gate - complete
 
 - Shared Vowfall faction identity and deterministic catalog
-- Single-source scenarios executed by TypeScript and C++
+- Single-source scenarios executed by native CMake tests and Unreal from the same `AshenCore` C++ sources
 - CI failures that name the exact drifting checkpoint
-- Local native, web, Unreal, and parity validation
+- Local native and Unreal automation validation
 
-Exit gate: catalog and representative movement, economy, production, combat, supply, and victory
-contracts pass locally and in GitHub Actions.
+Exit gate: catalog and representative movement, economy, production, combat, supply, fog, and victory
+contracts pass through the portable C++ core locally and in GitHub Actions.
 
 ## 2. Complete the competitive gameplay vertical slice - complete
 
@@ -31,7 +31,7 @@ contracts pass locally and in GitHub Actions.
 Exit gate: one complete 1v1 match can be played in Unreal from opening worker split to victory without a
 debug-only action or missing core system.
 
-Delivered with deterministic TypeScript/C++ parity fixtures, native and Unreal automation coverage,
+Delivered with deterministic C++ fixtures, native and Unreal automation coverage,
 build-order-aware enemy construction and tech, responsive 1280x720 and 800x600 command surfaces, delayed
 render captures, and world-space feedback for construction, capture pressure, fog, resolve, and damage.
 

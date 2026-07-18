@@ -13,6 +13,8 @@
 #include "ashen/core/Catalog.hpp"
 #include "ashen/core/Simulation.hpp"
 
+#include <algorithm>
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreBootsInUnrealTest, "Ashen.Core.BootsInUnreal",
                                  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -114,6 +116,45 @@ bool FAshenCoreAuthoritativeFogTest::RunTest(const FString &Parameters)
               Match.is_entity_visible_to(*Match.find_entity(Enemy), PlayerId::One));
     TestEqual(TEXT("Pursuit ends when contact is lost"), static_cast<uint8>(Match.find_entity(Attacker)->order.type),
               static_cast<uint8>(OrderType::Idle));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreOwnedCommanderTest, "Ashen.Core.CoreOwnedCommander",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreOwnedCommanderTest::RunTest(const FString &Parameters)
+{
+    static_cast<void>(Parameters);
+    using namespace ashen::core;
+
+    SimulationConfig Config{};
+    Config.commander_players = {true, true};
+    Simulation First{Config};
+    Simulation Second{Config};
+
+    First.step();
+    Second.step();
+    TestEqual(TEXT("Core commanders queue rather than immediately mutate"),
+              static_cast<int32>(First.entities().size()), 10);
+    First.step();
+    Second.step();
+    TestEqual(TEXT("Both players execute a legal queued construction opening"),
+              static_cast<int32>(std::ranges::count_if(First.entities(), [](const Entity &EntityState)
+              {
+                  return EntityState.type == EntityType::Barracks && EntityState.under_construction;
+              })), 2);
+
+    constexpr Tick MaximumMatchTicks = 10'000;
+    while (First.status() == MatchStatus::Playing && First.tick() < MaximumMatchTicks)
+    {
+        First.step();
+        Second.step();
+    }
+
+    TestTrue(TEXT("Two core-owned bots finish without Unreal decision logic"), First.winner().has_value());
+    TestEqual(TEXT("Equivalent bot matches finish on the same tick"),
+              static_cast<int64>(First.tick()), static_cast<int64>(Second.tick()));
+    TestTrue(TEXT("Core-owned bot matches remain deterministic"), First.state_hash() == Second.state_hash());
     return true;
 }
 

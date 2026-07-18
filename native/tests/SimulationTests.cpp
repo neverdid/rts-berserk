@@ -1,4 +1,5 @@
 #include "ashen/core/Catalog.hpp"
+#include "ashen/core/CommanderAI.hpp"
 #include "ashen/core/Simulation.hpp"
 
 #include <algorithm>
@@ -38,6 +39,22 @@ void run_test(const std::string_view name, Test&& test) {
   config.player_two_faction = two;
   config.seed_starting_forces = false;
   return Simulation{config};
+}
+
+[[nodiscard]] bool same_command(const Command& left, const Command& right) {
+  return left.execute_tick == right.execute_tick && left.sequence == right.sequence &&
+         left.player == right.player && left.type == right.type && left.entities == right.entities &&
+         left.target == right.target && left.target_entity == right.target_entity &&
+         left.resource == right.resource && left.producer == right.producer &&
+         left.train_type == right.train_type && left.building_type == right.building_type &&
+         left.research == right.research && left.stance == right.stance && left.queue == right.queue;
+}
+
+[[nodiscard]] bool same_commands(const std::vector<Command>& left, const std::vector<Command>& right) {
+  return left.size() == right.size() &&
+         std::ranges::equal(left, right, [](const Command& first, const Command& second) {
+           return same_command(first, second);
+         });
 }
 
 void deterministic_fixed_step() {
@@ -714,6 +731,154 @@ void tide_resolve_and_visibility_are_authoritative() {
   CHECK(simulation.player(PlayerId::One).resolve < 100);
 }
 
+void observations_contain_only_seen_or_remembered_facts() {
+  auto simulation = sandbox();
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
+  const auto scout = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(140, 100));
+  const auto enemy_command = simulation.spawn_entity(PlayerId::Two, EntityType::Command, world(1'000, 700));
+  static_cast<void>(simulation.add_resource(world(180, 100), 600));
+  const auto distant_resource = simulation.add_resource(world(1'040, 700), 900);
+  const auto objective = simulation.add_control_point(world(930, 700));
+
+  const auto opening = simulation.observe(PlayerId::One);
+  CHECK(opening.player() == PlayerId::One);
+  CHECK(opening.owned_entities().size() == 2);
+  CHECK(opening.known_enemies().empty());
+  CHECK(opening.known_resources().size() == 1);
+  CHECK(opening.public_objectives().size() == 1);
+  CHECK(!opening.public_objectives().front().has_observed_state);
+  CHECK(opening.permits(CommandType::Move, scout));
+  CHECK(!opening.permits(CommandType::Attack, scout));
+
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(890, 700)));
+  const auto revealed = simulation.observe(PlayerId::One);
+  const auto seen_enemy = std::ranges::find(revealed.known_enemies(), enemy_command, &ObservedEnemy::id);
+  CHECK(seen_enemy != revealed.known_enemies().end());
+  CHECK(seen_enemy != revealed.known_enemies().end() && seen_enemy->currently_visible);
+  CHECK(std::ranges::any_of(revealed.known_resources(), [distant_resource](const ObservedResource& resource) {
+    return resource.id == distant_resource && resource.visibility == VisibilityState::Visible;
+  }));
+  const auto seen_objective = std::ranges::find(revealed.public_objectives(), objective,
+                                                &ObservedControlPoint::id);
+  CHECK(seen_objective != revealed.public_objectives().end() && seen_objective->has_observed_state);
+
+  const auto distant_scout = std::ranges::find_if(simulation.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::One && entity.type == EntityType::Worker && entity.position == world(890, 700);
+  });
+  CHECK(distant_scout != simulation.entities().end());
+  CHECK(distant_scout != simulation.entities().end() &&
+        simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Move,
+                                       .entities = {distant_scout->id},
+                                       .target = world(140, 100)})
+            .ok);
+  simulation.run(260);
+
+  const auto remembered = simulation.observe(PlayerId::One);
+  const auto remembered_enemy = std::ranges::find(remembered.known_enemies(), enemy_command,
+                                                  &ObservedEnemy::id);
+  CHECK(remembered_enemy != remembered.known_enemies().end());
+  CHECK(remembered_enemy != remembered.known_enemies().end() && !remembered_enemy->currently_visible);
+  CHECK(remembered_enemy != remembered.known_enemies().end() &&
+        remembered_enemy->last_observed_tick < remembered.tick());
+  CHECK(std::ranges::any_of(remembered.known_resources(),
+                            [distant_resource](const ObservedResource& resource) {
+                              return resource.id == distant_resource &&
+                                     resource.visibility == VisibilityState::Explored &&
+                                     resource.last_observed_amount == 900;
+                            }));
+  CHECK(!remembered.permits(CommandType::Attack, scout));
+}
+
+void hidden_state_cannot_change_a_commander_decision() {
+  Simulation baseline{};
+  Simulation perturbed{};
+  baseline.run(160);
+  perturbed.run(160);
+
+  const auto hidden_worker = std::ranges::find_if(perturbed.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::Two && entity.type == EntityType::Worker;
+  });
+  CHECK(hidden_worker != perturbed.entities().end());
+  CHECK(hidden_worker != perturbed.entities().end() &&
+        !perturbed.is_entity_visible_to(*hidden_worker, PlayerId::One));
+  CHECK(hidden_worker != perturbed.entities().end() &&
+        perturbed.execute_now(Command{.player = PlayerId::Two,
+                                      .type = CommandType::Move,
+                                      .entities = {hidden_worker->id},
+                                      .target = world(1'700, 1'100)})
+            .ok);
+
+  CHECK(baseline.state_hash() != perturbed.state_hash());
+  const auto baseline_observation = baseline.observe(PlayerId::One);
+  const auto perturbed_observation = perturbed.observe(PlayerId::One);
+  CHECK(baseline_observation.hash() == perturbed_observation.hash());
+
+  const CommanderAI commander{PlayerId::One};
+  const auto baseline_decision = commander.decide(baseline_observation);
+  const auto perturbed_decision = commander.decide(perturbed_observation);
+  CHECK(!baseline_decision.empty());
+  CHECK(same_commands(baseline_decision, perturbed_decision));
+}
+
+void commander_commands_use_the_normal_validation_path() {
+  Simulation simulation{};
+  simulation.step();
+  const CommanderAI commander{PlayerId::One};
+  const auto commands = commander.decide(simulation.observe(PlayerId::One));
+  CHECK(commands.size() == 2);
+  for (const auto& command : commands) {
+    const auto result = simulation.execute_now(command);
+    CHECK(result.ok);
+  }
+  CHECK(std::ranges::any_of(simulation.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::One && entity.type == EntityType::Barracks && entity.under_construction;
+  }));
+}
+
+void core_commanders_can_own_both_players_and_queue_actions() {
+  SimulationConfig config{};
+  config.commander_players = {true, true};
+  Simulation simulation{config};
+
+  simulation.step();
+  CHECK(simulation.tick() == 1);
+  CHECK(simulation.entities().size() == 10);
+  simulation.step();
+  CHECK(simulation.tick() == 2);
+  CHECK(std::ranges::count_if(simulation.entities(), [](const Entity& entity) {
+          return entity.type == EntityType::Barracks && entity.under_construction;
+        }) == 2);
+  CHECK(std::ranges::any_of(simulation.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::One && entity.type == EntityType::Barracks;
+  }));
+  CHECK(std::ranges::any_of(simulation.entities(), [](const Entity& entity) {
+    return entity.owner == PlayerId::Two && entity.type == EntityType::Barracks;
+  }));
+}
+
+void core_bots_finish_a_deterministic_headless_match() {
+  SimulationConfig config{};
+  config.commander_players = {true, true};
+  Simulation first{config};
+  Simulation second{config};
+
+  constexpr Tick maximum_match_ticks = 60'000;
+  while (first.status() == MatchStatus::Playing && first.tick() < maximum_match_ticks) {
+    first.step();
+    second.step();
+    if (first.tick() % 1'000 == 0) {
+      CHECK(first.state_hash() == second.state_hash());
+    }
+  }
+
+  CHECK(first.status() != MatchStatus::Playing);
+  CHECK(first.winner().has_value());
+  CHECK(first.tick() == second.tick());
+  CHECK(first.winner() == second.winner());
+  CHECK(first.state_hash() == second.state_hash());
+}
+
 }  // namespace
 
 int main() {
@@ -748,6 +913,16 @@ int main() {
   run_test("autonomous orders ignore enemies outside current vision",
            autonomous_orders_ignore_enemies_outside_current_vision);
   run_test("Tide, resolve, and visibility are authoritative", tide_resolve_and_visibility_are_authoritative);
+  run_test("observations contain only seen or remembered facts",
+           observations_contain_only_seen_or_remembered_facts);
+  run_test("hidden state cannot change a commander decision",
+           hidden_state_cannot_change_a_commander_decision);
+  run_test("commander commands use the normal validation path",
+           commander_commands_use_the_normal_validation_path);
+  run_test("core commanders can own both players and queue actions",
+           core_commanders_can_own_both_players_and_queue_actions);
+  run_test("core bots finish a deterministic headless match",
+           core_bots_finish_a_deterministic_headless_match);
 
   if (failures != 0) {
     std::cerr << failures << " native simulation check(s) failed.\n";

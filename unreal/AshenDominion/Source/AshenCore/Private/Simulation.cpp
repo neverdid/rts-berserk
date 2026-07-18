@@ -145,6 +145,15 @@ void Simulation::reset(const SimulationConfig& config) {
   for (auto& grid : visibility_) {
     grid.reset(config_.map_size, config_.visibility_cell_size);
   }
+  for (auto& memory : resource_memory_) {
+    memory.clear();
+  }
+  for (auto& memory : control_point_memory_) {
+    memory.clear();
+  }
+  for (auto& memory : enemy_memory_) {
+    memory.clear();
+  }
   entities_.clear();
   resources_.clear();
   control_points_.clear();
@@ -237,6 +246,8 @@ void Simulation::step() {
   refresh_visibility();
   update_match_status();
   ++tick_;
+  refresh_observation_memory();
+  update_commanders();
 }
 
 void Simulation::run(const Tick ticks) {
@@ -293,18 +304,21 @@ EntityId Simulation::spawn_entity(const PlayerId owner, const EntityType type, c
 
   entities_.push_back(std::move(entity));
   refresh_visibility();
+  refresh_observation_memory();
   return entities_.back().id;
 }
 
 ResourceId Simulation::add_resource(const Vec2 position, const std::int32_t amount, const std::int32_t radius) {
   const auto id = ResourceId{next_resource_id_++};
   resources_.push_back(ResourceNode{id, position, radius, std::max(0, amount)});
+  refresh_observation_memory();
   return id;
 }
 
 ControlPointId Simulation::add_control_point(const Vec2 position, const std::int32_t radius) {
   const auto id = ControlPointId{next_control_point_id_++};
   control_points_.push_back(ControlPoint{id, position, radius});
+  refresh_observation_memory();
   return id;
 }
 
@@ -1624,6 +1638,167 @@ std::int32_t Simulation::queued_supply(const PlayerId owner) const noexcept {
   return total;
 }
 
+PlayerObservation Simulation::observe(const PlayerId observer) const {
+  const auto observer_index = player_index(observer);
+  std::vector<Entity> owned_entities;
+  owned_entities.reserve(entities_.size());
+  for (const auto& entity : entities_) {
+    if (entity.owner == observer && entity.alive()) {
+      owned_entities.push_back(entity);
+    }
+  }
+  std::ranges::sort(owned_entities, {}, [](const Entity& entity) { return entity.id.value; });
+
+  std::vector<ObservedResource> known_resources;
+  known_resources.reserve(resources_.size());
+  for (std::size_t index = 0; index < resources_.size(); ++index) {
+    if (index >= resource_memory_[observer_index].size() ||
+        !resource_memory_[observer_index][index].discovered) {
+      continue;
+    }
+    const auto& resource = resources_[index];
+    const auto& memory = resource_memory_[observer_index][index];
+    known_resources.push_back({resource.id, resource.position, resource.radius, memory.amount,
+                               visibility_state_at(resource.position, observer), memory.observed_tick});
+  }
+
+  std::vector<ObservedControlPoint> objectives;
+  objectives.reserve(control_points_.size());
+  for (std::size_t index = 0; index < control_points_.size(); ++index) {
+    const auto& point = control_points_[index];
+    const auto memory = index < control_point_memory_[observer_index].size()
+                            ? control_point_memory_[observer_index][index]
+                            : ControlPointMemory{};
+    objectives.push_back({point.id,
+                          point.position,
+                          point.radius,
+                          visibility_state_at(point.position, observer),
+                          memory.observed,
+                          memory.owner,
+                          memory.influence,
+                          memory.observed_tick});
+  }
+
+  return PlayerObservation{tick_,
+                           observer,
+                           player(enemy_of(observer)).faction,
+                           status_,
+                           player(observer),
+                           ruin_tide_,
+                           config_.map_size,
+                           visibility(observer),
+                           std::move(owned_entities),
+                           enemy_memory_[observer_index],
+                           std::move(known_resources),
+                           std::move(objectives),
+                           command_capabilities(observer)};
+}
+
+std::vector<CommandCapability> Simulation::command_capabilities(const PlayerId owner) const {
+  const auto owner_index = player_index(owner);
+  const auto& state = player(owner);
+  std::vector<CommandCapability> result;
+  const auto has_command = std::ranges::any_of(entities_, [owner](const Entity& entity) {
+    return entity.owner == owner && entity.alive() && entity.type == EntityType::Command &&
+           !entity.under_construction;
+  });
+  const auto has_known_resource = std::ranges::any_of(resource_memory_[owner_index],
+                                                       [](const ResourceMemory& memory) {
+                                                         return memory.discovered && memory.amount > 0;
+                                                       });
+  const auto has_visible_enemy = std::ranges::any_of(enemy_memory_[owner_index],
+                                                      [](const ObservedEnemy& enemy) {
+                                                        return enemy.currently_visible;
+                                                      });
+
+  const auto add = [&result](const CommandType type, const EntityId actor = {},
+                             const std::optional<EntityType> entity_type = std::nullopt,
+                             const std::optional<ResearchId> research = std::nullopt) {
+    result.push_back({type, actor, entity_type, research});
+  };
+
+  for (const auto& entity : entities_) {
+    if (entity.owner != owner || !entity.alive()) {
+      continue;
+    }
+    if (entity.kind == EntityKind::Unit && !entity.under_construction) {
+      add(CommandType::Move, entity.id);
+      add(CommandType::AttackMove, entity.id);
+      add(CommandType::Stop, entity.id);
+      add(CommandType::Hold, entity.id);
+      add(CommandType::Patrol, entity.id);
+      add(CommandType::SetStance, entity.id);
+      if (has_visible_enemy) {
+        add(CommandType::Attack, entity.id);
+      }
+      if (has_command) {
+        add(CommandType::Retreat, entity.id);
+      }
+      if (entity.type == EntityType::Worker) {
+        if (has_known_resource) {
+          add(CommandType::Gather, entity.id);
+        }
+        for (const auto building : {EntityType::Barracks, EntityType::Turret}) {
+          if (state.ore >= entity_definition(state.faction, building).cost) {
+            add(CommandType::Build, entity.id, building);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (entity.kind != EntityKind::Building || entity.under_construction) {
+      continue;
+    }
+    add(CommandType::SetRallyPoint, entity.id);
+    if (entity.production_queue.size() < 5) {
+      for (const auto unit : {EntityType::Worker, EntityType::Vanguard, EntityType::Skirmisher}) {
+        const auto definition = entity_definition(state.faction, unit);
+        const auto supply_available = state.supply_used + queued_supply(owner) + definition.supply_cost <=
+                                      state.supply_cap;
+        const auto prerequisite_met = unit != EntityType::Skirmisher || has_research(owner, ResearchId::TierTwo);
+        if (can_train(entity.type, unit) && state.ore >= production_cost(owner, unit) && supply_available &&
+            prerequisite_met) {
+          add(CommandType::Train, entity.id, unit);
+        }
+      }
+    }
+
+    if (!state.research_queue.empty()) {
+      continue;
+    }
+    constexpr std::array<ResearchId, kResearchCount> research_ids = {
+        ResearchId::TierTwo,       ResearchId::TemperedOaths, ResearchId::Wardcraft,
+        ResearchId::ChorusOfKnives, ResearchId::PitBroods,     ResearchId::VaultPlate,
+        ResearchId::SiegeLiturgy,
+    };
+    for (const auto research : research_ids) {
+      const auto definition = research_definition(research);
+      const auto faction_matches = !definition.faction.has_value() || *definition.faction == state.faction;
+      const auto prerequisite_met = !definition.prerequisite.has_value() ||
+                                    has_research(owner, *definition.prerequisite);
+      if (entity.type == definition.producer && faction_matches && prerequisite_met &&
+          !has_research(owner, research) && state.ore >= definition.cost) {
+        add(CommandType::Research, entity.id, std::nullopt, research);
+      }
+    }
+  }
+
+  const auto power = power_definition(state.faction);
+  auto power_legal = state.power_cooldown_ticks == 0 && state.ore >= power.cost;
+  if (state.faction == FactionId::Ascendancy) {
+    const auto unit = entity_definition(state.faction, EntityType::Vanguard);
+    power_legal = power_legal && has_command &&
+                  state.supply_used + queued_supply(owner) + unit.supply_cost <= state.supply_cap;
+  }
+  if (power_legal) {
+    add(CommandType::ActivatePower);
+  }
+
+  std::ranges::sort(result);
+  return result;
+}
+
 const VisibilityGrid& Simulation::visibility(const PlayerId owner) const noexcept {
   return visibility_[player_index(owner)];
 }
@@ -1661,6 +1836,89 @@ void Simulation::refresh_visibility() noexcept {
       continue;
     }
     visibility_[player_index(entity.owner)].reveal(entity.position, entity.sight);
+  }
+}
+
+void Simulation::refresh_observation_memory() {
+  for (const auto observer : {PlayerId::One, PlayerId::Two}) {
+    const auto index = player_index(observer);
+    resource_memory_[index].resize(resources_.size());
+    for (std::size_t resource_index = 0; resource_index < resources_.size(); ++resource_index) {
+      const auto& resource = resources_[resource_index];
+      if (!is_position_visible_to(resource.position, observer, resource.radius)) {
+        continue;
+      }
+      auto& memory = resource_memory_[index][resource_index];
+      memory.discovered = true;
+      memory.amount = resource.amount;
+      memory.observed_tick = tick_;
+    }
+
+    control_point_memory_[index].resize(control_points_.size());
+    for (std::size_t point_index = 0; point_index < control_points_.size(); ++point_index) {
+      const auto& point = control_points_[point_index];
+      if (!is_position_visible_to(point.position, observer, point.radius)) {
+        continue;
+      }
+      auto& memory = control_point_memory_[index][point_index];
+      memory.observed = true;
+      memory.owner = point.owner;
+      memory.influence = point.influence;
+      memory.observed_tick = tick_;
+    }
+
+    for (auto& enemy : enemy_memory_[index]) {
+      enemy.currently_visible = false;
+    }
+    for (const auto& entity : entities_) {
+      if (entity.owner == observer || !entity.alive() || !is_entity_visible_to(entity, observer)) {
+        continue;
+      }
+      const auto found = std::ranges::find(enemy_memory_[index], entity.id, &ObservedEnemy::id);
+      ObservedEnemy sighting{entity.id,
+                            entity.owner,
+                            entity.type,
+                            entity.kind,
+                            entity.position,
+                            entity.radius,
+                            entity.hit_points,
+                            entity.max_hit_points,
+                            entity.resolve,
+                            entity.under_construction,
+                            true,
+                            tick_};
+      if (found == enemy_memory_[index].end()) {
+        enemy_memory_[index].push_back(sighting);
+      } else {
+        *found = sighting;
+      }
+    }
+    std::erase_if(enemy_memory_[index], [this, observer](const ObservedEnemy& enemy) {
+      return !enemy.currently_visible && is_position_visible_to(enemy.position, observer, enemy.radius);
+    });
+    std::ranges::sort(enemy_memory_[index], {}, [](const ObservedEnemy& enemy) { return enemy.id.value; });
+  }
+}
+
+void Simulation::update_commanders() {
+  if (status_ != MatchStatus::Playing) {
+    return;
+  }
+
+  std::array<std::vector<Command>, 2> decisions;
+  for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
+    const auto index = player_index(player_id);
+    if (config_.commander_players[index]) {
+      decisions[index] = commanders_[index].decide(observe(player_id));
+    }
+  }
+  for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
+    for (auto& command : decisions[player_index(player_id)]) {
+      command.player = player_id;
+      command.execute_tick = tick_;
+      command.sequence = 0;
+      enqueue(std::move(command));
+    }
   }
 }
 
@@ -1774,6 +2032,10 @@ std::uint64_t Simulation::state_hash() const noexcept {
   hash_integral(hash, static_cast<std::uint8_t>(config_.mode));
   hash_integral(hash, static_cast<std::uint8_t>(config_.player_one_faction));
   hash_integral(hash, static_cast<std::uint8_t>(config_.player_two_faction));
+  for (const auto enabled : config_.commander_players) {
+    hash_integral(hash, enabled);
+  }
+  hash_integral(hash, config_.seed_starting_forces);
   hash_vec(hash, config_.map_size);
   hash_integral(hash, config_.visibility_cell_size);
   hash_integral(hash, config_.navigation_cell_size);
@@ -1798,6 +2060,40 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, grid.rows());
     for (const auto state : grid.cells()) {
       hash_integral(hash, static_cast<std::uint8_t>(state));
+    }
+  }
+  for (const auto& memories : resource_memory_) {
+    hash_integral(hash, memories.size());
+    for (const auto& memory : memories) {
+      hash_integral(hash, memory.discovered);
+      hash_integral(hash, memory.amount);
+      hash_integral(hash, memory.observed_tick);
+    }
+  }
+  for (const auto& memories : control_point_memory_) {
+    hash_integral(hash, memories.size());
+    for (const auto& memory : memories) {
+      hash_integral(hash, memory.observed);
+      hash_integral(hash, memory.owner.has_value() ? static_cast<std::uint8_t>(*memory.owner) + 1U : 0U);
+      hash_integral(hash, memory.influence);
+      hash_integral(hash, memory.observed_tick);
+    }
+  }
+  for (const auto& memories : enemy_memory_) {
+    hash_integral(hash, memories.size());
+    for (const auto& memory : memories) {
+      hash_integral(hash, memory.id.value);
+      hash_integral(hash, static_cast<std::uint8_t>(memory.owner));
+      hash_integral(hash, static_cast<std::uint8_t>(memory.type));
+      hash_integral(hash, static_cast<std::uint8_t>(memory.kind));
+      hash_vec(hash, memory.position);
+      hash_integral(hash, memory.radius);
+      hash_integral(hash, memory.hit_points);
+      hash_integral(hash, memory.max_hit_points);
+      hash_integral(hash, memory.resolve);
+      hash_integral(hash, memory.under_construction);
+      hash_integral(hash, memory.currently_visible);
+      hash_integral(hash, memory.last_observed_tick);
     }
   }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ashen/core/CommanderAI.hpp"
+#include "ashen/core/PlayerObservation.hpp"
 #include "ashen/core/Types.hpp"
 #include "ashen/core/VisibilityGrid.hpp"
 
@@ -39,6 +41,7 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] const ResourceNode* find_resource(ResourceId id) const noexcept;
   [[nodiscard]] const ControlPoint* find_control_point(ControlPointId id) const noexcept;
   [[nodiscard]] std::int32_t ruin_tide() const noexcept { return ruin_tide_; }
+  [[nodiscard]] PlayerObservation observe(PlayerId player) const;
   [[nodiscard]] const VisibilityGrid& visibility(PlayerId owner) const noexcept;
   [[nodiscard]] VisibilityState visibility_state_at(Vec2 position, PlayerId owner) const noexcept;
   [[nodiscard]] std::vector<EntityId> visible_enemy_ids(PlayerId observer) const;
@@ -80,12 +83,14 @@ class ASHENCORE_API Simulation final {
   void update_orders();
   void update_auto_aggro();
   void update_defenses();
+  void update_commanders();
   void update_gather(Entity& entity);
   void update_build(Entity& entity);
   void update_attack_move(Entity& entity);
   void update_patrol(Entity& entity);
   void update_hold(Entity& entity);
   void refresh_visibility() noexcept;
+  void refresh_observation_memory();
   void resolve_unit_separation();
   void remove_dead_entities();
   void update_match_status();
@@ -103,8 +108,22 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] Vec2 nearest_navigable(Vec2 position, std::int32_t radius) const noexcept;
   [[nodiscard]] const Entity* nearest_command(PlayerId owner, Vec2 position) const noexcept;
   [[nodiscard]] std::int32_t queued_supply(PlayerId owner) const noexcept;
+  [[nodiscard]] std::vector<CommandCapability> command_capabilities(PlayerId owner) const;
   [[nodiscard]] std::int32_t resolve_multiplier_basis(const Entity& entity) const noexcept;
   void apply_research_bonuses(Entity& entity, bool preserve_health);
+
+  struct ResourceMemory {
+    bool discovered{};
+    std::int32_t amount{};
+    Tick observed_tick{};
+  };
+
+  struct ControlPointMemory {
+    bool observed{};
+    std::optional<PlayerId> owner{};
+    std::int32_t influence{};
+    Tick observed_tick{};
+  };
 
   SimulationConfig config_{};
   Tick tick_{};
@@ -113,6 +132,10 @@ class ASHENCORE_API Simulation final {
   std::array<PlayerState, 2> players_{};
   std::array<bool, 2> command_seen_{};
   std::array<VisibilityGrid, 2> visibility_{};
+  std::array<std::vector<ResourceMemory>, 2> resource_memory_{};
+  std::array<std::vector<ControlPointMemory>, 2> control_point_memory_{};
+  std::array<std::vector<ObservedEnemy>, 2> enemy_memory_{};
+  std::array<CommanderAI, 2> commanders_{CommanderAI{PlayerId::One}, CommanderAI{PlayerId::Two}};
   std::vector<Entity> entities_{};
   std::vector<ResourceNode> resources_{};
   std::vector<ControlPoint> control_points_{};

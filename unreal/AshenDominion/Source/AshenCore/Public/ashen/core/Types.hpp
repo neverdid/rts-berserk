@@ -267,6 +267,7 @@ struct SimulationConfig {
   MatchMode mode{MatchMode::Skirmish};
   FactionId player_one_faction{FactionId::Compact};
   FactionId player_two_faction{FactionId::Ascendancy};
+  std::array<bool, 2> commander_players{false, false};
   Vec2 map_size{world(2'400, 1'400)};
   std::int32_t visibility_cell_size{world(24, 0).x};
   std::int32_t navigation_cell_size{world(36, 0).x};

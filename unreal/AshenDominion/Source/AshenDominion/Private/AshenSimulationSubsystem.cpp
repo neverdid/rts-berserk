@@ -20,7 +20,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogAshenSimulation, Log, All);
 class FAshenSimulationRuntime final
 {
 public:
-    ashen::core::Simulation Simulation{};
+    explicit FAshenSimulationRuntime(const ashen::core::SimulationConfig& Config) : Simulation(Config) {}
+
+    ashen::core::Simulation Simulation;
 };
 
 namespace
@@ -153,7 +155,6 @@ void UAshenSimulationSubsystem::Tick(const float DeltaTime)
     while (Accumulator >= FixedStepSeconds && Steps < MaxCatchUpSteps)
     {
         Runtime->Simulation.step();
-        UpdateEnemyCommander();
         Accumulator -= FixedStepSeconds;
         ++Steps;
     }
@@ -808,9 +809,10 @@ bool UAshenSimulationSubsystem::StoreCommandResult(const bool bOk, const FString
 void UAshenSimulationSubsystem::StartMatch()
 {
     delete Runtime;
-    Runtime = new FAshenSimulationRuntime();
+    ashen::core::SimulationConfig Config{};
+    Config.commander_players[ashen::core::player_index(ashen::core::PlayerId::Two)] = true;
+    Runtime = new FAshenSimulationRuntime(Config);
     Accumulator = 0.0f;
-    LastEnemyDecisionTick = -1;
     LastCommandMessage.Reset();
     KnownControlPointOwners.Reset();
     KnownControlPointInfluence.Reset();
@@ -859,237 +861,6 @@ void UAshenSimulationSubsystem::PrimeOpeningEconomy()
     Gather.resource = ChosenResource->id;
     static_cast<void>(Runtime->Simulation.execute_now(std::move(Gather)));
     UE_LOG(LogAshenSimulation, Display, TEXT("Opening workers assigned to cursed iron"));
-}
-
-void UAshenSimulationSubsystem::UpdateEnemyCommander()
-{
-    if (Runtime == nullptr || Runtime->Simulation.status() != ashen::core::MatchStatus::Playing)
-    {
-        return;
-    }
-
-    const int64 Tick = static_cast<int64>(Runtime->Simulation.tick());
-    if (Tick == LastEnemyDecisionTick)
-    {
-        return;
-    }
-    LastEnemyDecisionTick = Tick;
-
-    using namespace ashen::core;
-    std::vector<EntityId> Workers;
-    std::vector<EntityId> Army;
-    const Entity* CommandBuilding = nullptr;
-    const Entity* Barracks = nullptr;
-    const Entity* Turret = nullptr;
-    const Entity* HumanCommand = nullptr;
-    for (const Entity& EntityState : Runtime->Simulation.entities())
-    {
-        if (EntityState.owner == PlayerId::Two)
-        {
-            if (EntityState.type == EntityType::Worker)
-            {
-                Workers.push_back(EntityState.id);
-            }
-            else if (EntityState.type == EntityType::Vanguard || EntityState.type == EntityType::Skirmisher)
-            {
-                Army.push_back(EntityState.id);
-            }
-            else if (EntityState.type == EntityType::Command)
-            {
-                CommandBuilding = &EntityState;
-            }
-            else if (EntityState.type == EntityType::Barracks)
-            {
-                Barracks = &EntityState;
-            }
-            else if (EntityState.type == EntityType::Turret)
-            {
-                Turret = &EntityState;
-            }
-        }
-    }
-    for (const EntityId EnemyId : Runtime->Simulation.visible_enemy_ids(PlayerId::Two))
-    {
-        const Entity* ObservedEnemy = Runtime->Simulation.find_entity(EnemyId);
-        if (ObservedEnemy != nullptr && ObservedEnemy->type == EntityType::Command)
-        {
-            HumanCommand = ObservedEnemy;
-            break;
-        }
-    }
-
-    if ((Tick == 1 || Tick % 420 == 0) && !Workers.empty())
-    {
-        const ResourceNode* ChosenResource = nullptr;
-        for (const ResourceNode& Resource : Runtime->Simulation.resources())
-        {
-            if (ChosenResource == nullptr || Resource.position.x > ChosenResource->position.x)
-            {
-                ChosenResource = &Resource;
-            }
-        }
-        if (ChosenResource != nullptr)
-        {
-            Command Gather{};
-            Gather.player = PlayerId::Two;
-            Gather.type = CommandType::Gather;
-            Gather.entities = Workers;
-            Gather.resource = ChosenResource->id;
-            static_cast<void>(Runtime->Simulation.execute_now(std::move(Gather)));
-        }
-    }
-
-    if (Barracks == nullptr && CommandBuilding != nullptr && !Workers.empty() && (Tick == 1 || Tick % 180 == 0))
-    {
-        constexpr int32 Offset = 1'000;
-        const std::array<Vec2, 4> Sites = {
-            Vec2{CommandBuilding->position.x - 190 * Offset, CommandBuilding->position.y - 135 * Offset},
-            Vec2{CommandBuilding->position.x - 190 * Offset, CommandBuilding->position.y + 135 * Offset},
-            Vec2{CommandBuilding->position.x - 260 * Offset, CommandBuilding->position.y - 95 * Offset},
-            Vec2{CommandBuilding->position.x - 260 * Offset, CommandBuilding->position.y + 95 * Offset},
-        };
-        for (const Vec2 Site : Sites)
-        {
-            Command Build{};
-            Build.player = PlayerId::Two;
-            Build.type = CommandType::Build;
-            Build.entities = {Workers.front()};
-            Build.target = Site;
-            Build.building_type = EntityType::Barracks;
-            if (Runtime->Simulation.execute_now(std::move(Build)).ok)
-            {
-                UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy founds a Chrysalis Court"));
-                return;
-            }
-        }
-    }
-
-    if (Turret == nullptr && CommandBuilding != nullptr && Barracks != nullptr && !Barracks->under_construction &&
-        !Workers.empty() &&
-        Tick >= 900 && Tick % 240 == 0)
-    {
-        const Vec2 Site{CommandBuilding->position.x - 330 * ashen::core::kWorldScale,
-                        CommandBuilding->position.y + 175 * ashen::core::kWorldScale};
-        Command Build{};
-        Build.player = PlayerId::Two;
-        Build.type = CommandType::Build;
-        Build.entities = {Workers.back()};
-        Build.target = Site;
-        Build.building_type = EntityType::Turret;
-        if (Runtime->Simulation.execute_now(std::move(Build)).ok)
-        {
-            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy raises a Witness Needle"));
-            return;
-        }
-    }
-
-    if (Tick > 0 && Tick % 160 == 0)
-    {
-        const PlayerState& Enemy = Runtime->Simulation.player(PlayerId::Two);
-        if (!Runtime->Simulation.has_research(PlayerId::Two, ResearchId::TierTwo) &&
-            Enemy.research_queue.empty() && CommandBuilding != nullptr)
-        {
-            Command Research{};
-            Research.player = PlayerId::Two;
-            Research.type = CommandType::Research;
-            Research.producer = CommandBuilding->id;
-            Research.research = ResearchId::TierTwo;
-            if (Runtime->Simulation.execute_now(std::move(Research)).ok)
-            {
-                UE_LOG(LogAshenSimulation, Display, TEXT("Enemy doctrine advances to the Black-Iron Age"));
-                return;
-            }
-        }
-        if (Runtime->Simulation.has_research(PlayerId::Two, ResearchId::TierTwo) &&
-            !Runtime->Simulation.has_research(PlayerId::Two, ResearchId::ChorusOfKnives) &&
-            Enemy.research_queue.empty() && Barracks != nullptr)
-        {
-            Command Research{};
-            Research.player = PlayerId::Two;
-            Research.type = CommandType::Research;
-            Research.producer = Barracks->id;
-            Research.research = ResearchId::ChorusOfKnives;
-            if (Runtime->Simulation.execute_now(std::move(Research)).ok)
-            {
-                UE_LOG(LogAshenSimulation, Display, TEXT("Enemy doctrine begins Perfected Purpose"));
-                return;
-            }
-        }
-
-        if (CommandBuilding != nullptr && Workers.size() < 5 && CommandBuilding->production_queue.size() < 2)
-        {
-            Command TrainWorker{};
-            TrainWorker.player = PlayerId::Two;
-            TrainWorker.type = CommandType::Train;
-            TrainWorker.producer = CommandBuilding->id;
-            TrainWorker.train_type = EntityType::Worker;
-            static_cast<void>(Runtime->Simulation.execute_now(std::move(TrainWorker)));
-        }
-
-        if (Barracks != nullptr && Barracks->production_queue.size() < 2)
-        {
-            Command TrainArmy{};
-            TrainArmy.player = PlayerId::Two;
-            TrainArmy.type = CommandType::Train;
-            TrainArmy.producer = Barracks->id;
-            TrainArmy.train_type = (Tick / 160) % 3 == 0 ? EntityType::Skirmisher : EntityType::Vanguard;
-            static_cast<void>(Runtime->Simulation.execute_now(std::move(TrainArmy)));
-        }
-    }
-
-    if (Tick >= 900 && Tick % 480 == 0 && Army.size() >= 4)
-    {
-        const ControlPoint* TargetPoint = nullptr;
-        for (const ControlPoint& Point : Runtime->Simulation.control_points())
-        {
-            if (Runtime->Simulation.visibility_state_at(Point.position, PlayerId::Two) == VisibilityState::Visible &&
-                Point.owner != PlayerId::Two)
-            {
-                TargetPoint = &Point;
-                break;
-            }
-        }
-        if (TargetPoint == nullptr && !Runtime->Simulation.control_points().empty())
-        {
-            const size_t ScoutIndex = static_cast<size_t>(Tick / 480) % Runtime->Simulation.control_points().size();
-            TargetPoint = &Runtime->Simulation.control_points()[ScoutIndex];
-        }
-        if (TargetPoint != nullptr)
-        {
-            Command Capture{};
-            Capture.player = PlayerId::Two;
-            Capture.type = CommandType::AttackMove;
-            Capture.entities = Army;
-            Capture.target = TargetPoint->position;
-            static_cast<void>(Runtime->Simulation.execute_now(std::move(Capture)));
-        }
-    }
-
-    const PlayerState& Enemy = Runtime->Simulation.player(PlayerId::Two);
-    if (Tick >= 1'200 && Tick % 240 == 0 && Army.size() >= 3 && Enemy.power_cooldown_ticks == 0)
-    {
-        Command Power{};
-        Power.player = PlayerId::Two;
-        Power.type = CommandType::ActivatePower;
-        if (Runtime->Simulation.execute_now(std::move(Power)).ok)
-        {
-            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy manifests Absolution"));
-            return;
-        }
-    }
-
-    if (Tick >= 2'400 && (Tick - 2'400) % 800 == 0 && Army.size() >= 6 && HumanCommand != nullptr)
-    {
-        Command Assault{};
-        Assault.player = PlayerId::Two;
-        Assault.type = CommandType::Attack;
-        Assault.entities = std::move(Army);
-        Assault.target_entity = HumanCommand->id;
-        if (Runtime->Simulation.execute_now(std::move(Assault)).ok)
-        {
-            UE_LOG(LogAshenSimulation, Display, TEXT("The Gloam Ascendancy launches an assault at tick %lld"), Tick);
-        }
-    }
 }
 
 void UAshenSimulationSubsystem::SyncWorldActors()

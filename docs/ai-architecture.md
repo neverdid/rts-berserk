@@ -48,16 +48,24 @@ Exit gate:
 
 ### Step 1: Core-owned AI controller
 
-- Replace `UAshenSimulationSubsystem::UpdateEnemyCommander` with an `AshenCore` controller that can own
-  either player.
-- Introduce an immutable `PlayerObservation` containing owned state, visible enemies, explored map data,
-  last-observed facts, public objectives, and legal command capabilities.
-- The controller emits ordinary queued `Command` values and has no privileged mutation path.
-- Support bot-versus-bot matches without Unreal or rendering.
+Status: implemented in `AshenCore`.
+
+- `PlayerObservation` is a value snapshot containing owned state, sanitized visible enemies, explored map
+  cells, remembered sightings, discovered resources, last-observed objective state, and legal capabilities.
+- Visible enemy snapshots omit production queues, orders, routes, rally points, cooldowns, and other
+  information a player cannot observe.
+- `CommanderAI` includes no `Simulation` dependency. Its only input is a const observation and its only
+  output is an ordinary `Command` value.
+- `Simulation` owns both-player controller scheduling. It takes both observations before queuing commands
+  for the next fixed tick, preventing immediate mutation and host-specific first reactions.
+- The Unreal subsystem only enables the Player Two commander; it contains no opponent decision logic.
+- The native headless runner enables both commanders and finishes a complete deterministic match without
+  Unreal or rendering.
 
 Exit gate:
 
-- Two bots can finish a headless match, and neither controller can access raw hidden enemy state.
+- Passed: two bots finish a headless match, duplicate matches produce identical hashes, and perturbing a
+  hidden enemy order changes raw simulation state without changing the observer hash or commander decision.
 
 ### Step 2: Self-play and measurement
 
