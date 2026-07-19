@@ -321,6 +321,7 @@ struct CommandTraceEntry {
   Tick applied_tick{};
   CommandSource source{CommandSource::External};
   std::uint64_t observation_hash{};
+  std::uint64_t ai_decision_id{};
   Command command{};
   bool accepted{};
   CommandError error{CommandError::None};

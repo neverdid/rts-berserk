@@ -90,19 +90,42 @@ Status: implemented in the native C++ benchmark layer.
 Exit gate:
 
 - Passed: the same seed and build produce the same telemetry, command trace, checkpoints, outcome, and state
-  hash; the default two-seed suite completes 12 full matches and 18 targeted fixtures with all 78 behavior
-  checks passing.
+  hash; the default two-seed suite completes 12 full matches and 18 targeted fixtures with all 96 behavior
+  checks passing, including the Step 3 decision-ledger audits.
 
 ### Step 3: Strategic, tactical, and micro layers
 
-- Strategic layer: utility-scored economy, supply, technology, production, expansion, and army composition.
-- Tactical layer: scouting, objective selection, force allocation, engagement, reinforcement, and retreat.
-- Micro layer: focus fire, spacing, formation maintenance, kiting, screening, ability timing, and path recovery.
-- Each layer runs at its own human-plausible cadence and exposes a decision trace for debugging.
+Status: implemented in `AshenCore`.
+
+- The strategic layer scores worker allocation, interrupted construction, opening and supply structures,
+  production capacity, technology, faction doctrine, and visible-enemy-aware army composition. Worker
+  allocation may accompany one independently selected macro spend without issuing an unaffordable batch.
+- The tactical layer scores scouting, remembered-command search, objective capture, reinforcement, visible
+  engagements, command assaults, faction-power timing, and retreat from unfavorable health, resolve, or
+  observed force ratios.
+- The micro layer scores critical-unit retreat, ranged kiting while weapons cool, target focus, melee
+  screening for ranged units, and recovery of idle formation stragglers. Retreat hysteresis shelters wounded
+  survivors once, while a separate combat-ready force view keeps them out of offensive command loops.
+- All scores are deterministic integers derived only from `PlayerObservation`. Candidate ordering and ties
+  have stable keys, and match-seed variation can change authored preferences without reading hidden state.
+- Strategic decisions run every 80 ticks (4 seconds), tactical decisions every 120 ticks (6 seconds) with a
+  30-tick phase, and micro decisions every 12 ticks (0.6 seconds). The opening receives one explicit
+  strategic evaluation at tick 1.
+- `Simulation` assigns every selected choice a stable decision ID, queues its ordinary player command, and
+  later resolves the record as accepted or rejected through the same authoritative validation path.
+- Every record retains the observation tick and hash, complete candidate list and utility components,
+  selected candidate, winning reason, command payload and sequence, application tick, status, and error.
+- Native self-play hashes the complete decision ledger independently from the command trace. CI audits score
+  sums, winner selection, cadence, provenance, unique IDs, result linkage, replay equality, and the presence
+  of all three layers in full matches.
+- Focused native fixtures cover opening allocation, tactical retreat, focus fire, and cooldown-aware kiting.
+  Unreal's integration fixture verifies the same ledger and command-result links through the production module.
 
 Exit gate:
 
-- Every chosen action can report its candidate scores, winning reason, observation tick, and command result.
+- Passed: every applied choice reports its candidate scores, winning reason, observation tick, and
+  authoritative command result; a queued end-of-snapshot choice remains explicitly marked `Queued` until the
+  next fixed tick applies it.
 
 ### Step 4: Influence maps
 
@@ -155,6 +178,7 @@ visibility, combat execution, and the deterministic simulation never depend on a
 
 ## Debugging contract
 
-Every AI decision record must contain the simulation tick, observer player, observation revision, layer,
-candidate actions, utility components, selected action, rejected command reason, and relevant influence cells.
-Shipping builds may discard these records, but tests and development builds must be able to reproduce them.
+Every AI decision record must contain the simulation tick, observer player, observation hash, layer,
+candidate actions, utility components, selected action, command sequence, application status, and rejected
+command reason. Step 4 will add the relevant influence cells. Shipping builds may discard these records, but
+tests and development builds must be able to reproduce them.

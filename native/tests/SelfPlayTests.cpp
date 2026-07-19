@@ -52,6 +52,7 @@ void fixed_behavior_scenarios_cover_every_faction_and_pass() {
   std::array<std::uint32_t, 3> faction_counts{};
   std::set<std::string> names;
   const std::vector<core::CommandTraceEntry> empty_trace;
+  const std::vector<core::AIDecisionRecord> empty_decision_trace;
   for (const auto& scenario : scenarios) {
     ++faction_counts[static_cast<std::size_t>(scenario.faction)];
     names.insert(scenario.name);
@@ -59,6 +60,10 @@ void fixed_behavior_scenarios_cover_every_faction_and_pass() {
     CHECK(report.passed);
     CHECK(!report.checks.empty());
     CHECK(report.command_trace_hash != benchmark::command_trace_hash(empty_trace));
+    CHECK(report.ai_decision_trace_hash !=
+          benchmark::ai_decision_trace_hash(empty_decision_trace));
+    CHECK(report.invalid_ai_decisions == 0);
+    CHECK(report.unlinked_ai_commands == 0);
   }
   constexpr std::array<std::uint32_t, 3> expected_counts{3, 3, 3};
   CHECK(names.size() == scenarios.size());
@@ -70,6 +75,7 @@ void duplicate_matches_have_identical_traces_and_checkpoints() {
   const auto first = benchmark::run_match(benchmark_case, 1);
   const auto replay = benchmark::run_match(benchmark_case, 1);
   const std::vector<core::CommandTraceEntry> empty_trace;
+  const std::vector<core::AIDecisionRecord> empty_decision_trace;
 
   CHECK(first == replay);
   CHECK(!first.timed_out);
@@ -79,6 +85,16 @@ void duplicate_matches_have_identical_traces_and_checkpoints() {
   CHECK(first.checkpoints.back().tick == first.duration_ticks);
   CHECK(first.final_state_hash != 0);
   CHECK(first.command_trace_hash != benchmark::command_trace_hash(empty_trace));
+  CHECK(first.ai_decision_trace_hash !=
+        benchmark::ai_decision_trace_hash(empty_decision_trace));
+  CHECK(first.invalid_ai_decisions == 0);
+  CHECK(first.unresolved_ai_decisions == 0);
+  CHECK(first.unlinked_ai_commands == 0);
+  for (std::size_t layer = 0; layer < 3; ++layer) {
+    CHECK(first.players[0].ai_decisions_by_layer[layer] +
+              first.players[1].ai_decisions_by_layer[layer] >
+          0);
+  }
   for (const auto& player : first.players) {
     CHECK(player.commands_issued > 0);
     CHECK(player.commands_without_observation == 0);
@@ -94,6 +110,7 @@ void match_seed_is_part_of_simulation_and_trace_identity() {
   CHECK(first_seed.seed != second_seed.seed);
   CHECK(first_seed.final_state_hash != second_seed.final_state_hash);
   CHECK(first_seed.command_trace_hash != second_seed.command_trace_hash);
+  CHECK(first_seed.ai_decision_trace_hash != second_seed.ai_decision_trace_hash);
 }
 
 void report_json_is_stable_and_invalid_options_fail_closed() {
@@ -105,8 +122,10 @@ void report_json_is_stable_and_invalid_options_fail_closed() {
   const auto first_json = benchmark::to_json(sample);
   const auto second_json = benchmark::to_json(sample);
   CHECK(first_json == second_json);
-  CHECK(first_json.find("\"schema_version\": 1") != std::string::npos);
+  CHECK(first_json.find("\"schema_version\": 2") != std::string::npos);
   CHECK(first_json.find("\"command_trace_hash\"") != std::string::npos);
+  CHECK(first_json.find("\"ai_decision_trace_hash\"") != std::string::npos);
+  CHECK(first_json.find("\"ai_decisions_by_layer\"") != std::string::npos);
   CHECK(first_json.find("\"avoidable_idle_production_ticks\"") != std::string::npos);
   CHECK(first_json.find("\"fixed_scenarios\"") != std::string::npos);
   CHECK(first_json.find("\"scenario_summary\"") != std::string::npos);

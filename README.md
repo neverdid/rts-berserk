@@ -143,7 +143,9 @@ ctest --preset dev -C Debug
 The generated `ashen_headless` executable advances a match without graphics and prints its final tick,
 economy, result, and deterministic state hash. `ashen_self_play` runs the faction-and-spawn matrix plus
 economy-recovery, blocked-opening, and early-rush fixtures for every faction. It duplicates each seeded run to
-detect nondeterminism and writes a stable machine-readable report:
+detect nondeterminism and writes a stable machine-readable report. The C++ commander has independent
+strategic, tactical, and micro utility layers; the report separately hashes every candidate score, selected
+reason, observation, command, and authoritative result:
 
 ```powershell
 .\build\native\native\Debug\ashen_self_play.exe `

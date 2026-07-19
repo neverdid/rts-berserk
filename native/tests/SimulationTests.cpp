@@ -41,22 +41,6 @@ void run_test(const std::string_view name, Test&& test) {
   return Simulation{config};
 }
 
-[[nodiscard]] bool same_command(const Command& left, const Command& right) {
-  return left.execute_tick == right.execute_tick && left.sequence == right.sequence &&
-         left.player == right.player && left.type == right.type && left.entities == right.entities &&
-         left.target == right.target && left.target_entity == right.target_entity &&
-         left.resource == right.resource && left.producer == right.producer &&
-         left.train_type == right.train_type && left.building_type == right.building_type &&
-         left.research == right.research && left.stance == right.stance && left.queue == right.queue;
-}
-
-[[nodiscard]] bool same_commands(const std::vector<Command>& left, const std::vector<Command>& right) {
-  return left.size() == right.size() &&
-         std::ranges::equal(left, right, [](const Command& first, const Command& second) {
-           return same_command(first, second);
-         });
-}
-
 void deterministic_fixed_step() {
   Simulation first{};
   Simulation second{};
@@ -840,8 +824,8 @@ void observations_contain_only_seen_or_remembered_facts() {
 void hidden_state_cannot_change_a_commander_decision() {
   Simulation baseline{};
   Simulation perturbed{};
-  baseline.run(180);
-  perturbed.run(180);
+  baseline.run(160);
+  perturbed.run(160);
 
   const auto hidden_worker = std::ranges::find_if(perturbed.entities(), [](const Entity& entity) {
     return entity.owner == PlayerId::Two && entity.type == EntityType::Worker;
@@ -862,10 +846,10 @@ void hidden_state_cannot_change_a_commander_decision() {
   CHECK(baseline_observation.hash() == perturbed_observation.hash());
 
   const CommanderAI commander{PlayerId::One};
-  const auto baseline_decision = commander.decide(baseline_observation);
-  const auto perturbed_decision = commander.decide(perturbed_observation);
-  CHECK(!baseline_decision.empty());
-  CHECK(same_commands(baseline_decision, perturbed_decision));
+  const auto baseline_plan = commander.plan(baseline_observation);
+  const auto perturbed_plan = commander.plan(perturbed_observation);
+  CHECK(!baseline_plan.decisions.empty());
+  CHECK(baseline_plan == perturbed_plan);
 }
 
 void commander_commands_use_the_normal_validation_path() {
@@ -904,8 +888,15 @@ void core_commanders_can_own_both_players_and_queue_actions() {
   }));
   CHECK(!simulation.command_trace().empty());
   CHECK(std::ranges::all_of(simulation.command_trace(), [](const CommandTraceEntry& entry) {
-    return entry.source == CommandSource::CommanderAI && entry.observation_hash != 0 && entry.accepted &&
-           entry.issued_tick <= entry.applied_tick;
+    return entry.source == CommandSource::CommanderAI && entry.observation_hash != 0 &&
+           entry.ai_decision_id != 0 && entry.accepted && entry.issued_tick <= entry.applied_tick;
+  }));
+  CHECK(simulation.ai_decision_trace().size() == simulation.command_trace().size());
+  CHECK(std::ranges::all_of(simulation.ai_decision_trace(), [](const AIDecisionRecord& record) {
+    return record.id != 0 && record.observation_hash != 0 && !record.candidates.empty() &&
+           record.selected_candidate < record.candidates.size() &&
+           record.command_status == AICommandStatus::Accepted && record.command_sequence != 0 &&
+           record.applied_tick >= record.observation_tick;
   }));
 }
 
@@ -928,6 +919,7 @@ void command_trace_records_external_provenance_and_validation() {
   const auto& applied = simulation.command_trace()[0];
   CHECK(applied.source == CommandSource::External);
   CHECK(applied.observation_hash == 0);
+  CHECK(applied.ai_decision_id == 0);
   CHECK(applied.issued_tick == 0);
   CHECK(applied.applied_tick == 2);
   CHECK(applied.accepted);
@@ -957,6 +949,23 @@ void core_bots_finish_a_deterministic_headless_match() {
   CHECK(first.tick() == second.tick());
   CHECK(first.winner() == second.winner());
   CHECK(first.state_hash() == second.state_hash());
+  CHECK(first.command_trace() == second.command_trace());
+  CHECK(first.ai_decision_trace() == second.ai_decision_trace());
+
+  std::array<bool, 3> observed_layers{};
+  for (const auto& decision : first.ai_decision_trace()) {
+    observed_layers[static_cast<std::size_t>(decision.layer)] = true;
+    CHECK(decision.command_status != AICommandStatus::Queued);
+    CHECK(decision.selected_candidate < decision.candidates.size());
+    const auto command = std::ranges::find(first.command_trace(), decision.id,
+                                           &CommandTraceEntry::ai_decision_id);
+    CHECK(command != first.command_trace().end());
+    CHECK(command != first.command_trace().end() &&
+          command->command.sequence == decision.command_sequence);
+    CHECK(command != first.command_trace().end() &&
+          command->accepted == (decision.command_status == AICommandStatus::Accepted));
+  }
+  CHECK(std::ranges::all_of(observed_layers, [](const bool observed) { return observed; }));
 }
 
 }  // namespace
