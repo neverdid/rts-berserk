@@ -24,6 +24,28 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
+      - name: Upload deterministic self-play report
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-play-${{ matrix.os }}
+          path: build/self-play-report.json
+          if-no-files-found: error
+
+  self-play-parity:
+    name: Self-play report parity
+    needs: native-core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download platform reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: self-play-*
+          path: reports
+      - name: Require byte-identical Windows and Linux reports
+        run: >-
+          cmp
+          reports/self-play-ubuntu-latest/self-play-report.json
+          reports/self-play-windows-latest/self-play-report.json
 
   native-sanitizers:
     name: Native sanitizers

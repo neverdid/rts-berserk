@@ -69,15 +69,29 @@ Exit gate:
 
 ### Step 2: Self-play and measurement
 
-- Add seeded headless match batches and fixed benchmark scenarios.
-- Record win rate by faction and spawn, economy timings, idle production time, first contact, army value,
-  retreat quality, command rate, match duration, and deterministic final hash.
-- Store machine-readable benchmark output and fail CI on nondeterminism or hard behavioral regressions.
-- Separate balance alerts from correctness failures so tuning remains intentional.
+Status: implemented in the native C++ benchmark layer.
+
+- Six ordered full-match scenarios cover every non-mirror faction pairing with every faction on both spawns.
+- Nine targeted fixtures per seed exercise economy-deficit recovery, blocked-opening recovery, and early-rush
+  survival for every faction. Each fixture exposes named checks and final diagnostic state in the report.
+- Match seeds are part of simulation state and the sanitized observation. They select deterministic commander
+  variants without exposing hidden state or granting resources.
+- Every applied command records source, issue and application ticks, the exact observation hash, complete
+  payload, acceptance, and validation error. External and commander commands share the same trace contract.
+- Headless reports record faction and spawn win rates, opening and technology timings, fifth-worker and
+  first-reinforcement timings, legal idle producer-ticks, first contact and ore at contact, peak and final army
+  value, command rate and rejection reasons, retreat survival, duration, checkpoints, and final hashes.
+- The fixed CI suite runs each match twice. Nondeterminism, timeout, missing contact, broken openings, missing
+  observation provenance, empty traces, and excessive rejected commands are correctness failures.
+- Faction or spawn win-rate skew creates a non-blocking balance alert. Tuning evidence remains visible without
+  weakening deterministic and behavioral gates.
+- Windows and Linux upload the stable JSON report, and CI requires the files to be byte-identical.
 
 Exit gate:
 
-- The same seed and build produce the same command trace, checkpoints, outcome, and state hash.
+- Passed: the same seed and build produce the same telemetry, command trace, checkpoints, outcome, and state
+  hash; the default two-seed suite completes 12 full matches and 18 targeted fixtures with all 78 behavior
+  checks passing.
 
 ### Step 3: Strategic, tactical, and micro layers
 

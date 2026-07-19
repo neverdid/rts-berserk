@@ -88,8 +88,9 @@ void hash_owned_entity(std::uint64_t& hash, const Entity& entity) noexcept {
 
 }  // namespace
 
-PlayerObservation::PlayerObservation(const Tick tick, const PlayerId player, const FactionId opponent_faction,
-                                     const MatchStatus status, PlayerState self, const std::int32_t ruin_tide,
+PlayerObservation::PlayerObservation(const Tick tick, const std::uint64_t match_seed, const PlayerId player,
+                                     const FactionId opponent_faction, const MatchStatus status, PlayerState self,
+                                     const std::int32_t ruin_tide,
                                      const Vec2 map_size, VisibilityGrid explored_map,
                                      std::vector<Entity> owned_entities,
                                      std::vector<ObservedEnemy> known_enemies,
@@ -98,6 +99,7 @@ PlayerObservation::PlayerObservation(const Tick tick, const PlayerId player, con
                                      std::vector<CommandCapability> capabilities)
     : tick_(tick),
       revision_(tick),
+      match_seed_(match_seed),
       player_(player),
       opponent_faction_(opponent_faction),
       status_(status),
@@ -124,6 +126,7 @@ std::uint64_t PlayerObservation::hash() const noexcept {
   auto hash = kFnvOffset;
   hash_integral(hash, tick_);
   hash_integral(hash, revision_);
+  hash_integral(hash, match_seed_);
   hash_integral(hash, static_cast<std::uint8_t>(player_));
   hash_integral(hash, static_cast<std::uint8_t>(opponent_faction_));
   hash_integral(hash, static_cast<std::uint8_t>(status_));

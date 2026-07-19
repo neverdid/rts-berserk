@@ -19,12 +19,39 @@ namespace {
   return static_cast<std::uint64_t>(dx * dx + dy * dy);
 }
 
+[[nodiscard]] std::uint64_t strategy_variant(std::uint64_t seed, const PlayerId player) noexcept {
+  seed ^= player == PlayerId::One ? 0x9e3779b97f4a7c15ULL : 0xd1b54a32d192ed03ULL;
+  seed ^= seed >> 30U;
+  seed *= 0xbf58476d1ce4e5b9ULL;
+  seed ^= seed >> 27U;
+  seed *= 0x94d049bb133111ebULL;
+  return seed ^ (seed >> 31U);
+}
+
 [[nodiscard]] const Entity* first_owned(const PlayerObservation& observation, const EntityType type,
                                         const bool completed_only = false) noexcept {
   const auto found = std::ranges::find_if(observation.owned_entities(), [=](const Entity& entity) {
     return entity.type == type && (!completed_only || !entity.under_construction);
   });
   return found == observation.owned_entities().end() ? nullptr : &*found;
+}
+
+[[nodiscard]] const Entity* first_orphaned_site(const PlayerObservation& observation,
+                                                const EntityType type) noexcept {
+  for (const auto& building : observation.owned_entities()) {
+    if (building.type != type || !building.alive() || !building.under_construction) {
+      continue;
+    }
+    const auto staffed = std::ranges::any_of(
+        observation.owned_entities(), [site = building.id](const Entity& worker) {
+          return worker.type == EntityType::Worker && worker.alive() &&
+                 worker.order.type == OrderType::Build && worker.order.target_entity == site;
+        });
+    if (!staffed) {
+      return &building;
+    }
+  }
+  return nullptr;
 }
 
 [[nodiscard]] std::vector<EntityId> owned_units(const PlayerObservation& observation,
@@ -105,19 +132,24 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
   }
 
   const auto tick = observation.tick();
+  const auto strategy = strategy_variant(observation.match_seed(), player_);
   const auto* command_building = first_owned(observation, EntityType::Command, true);
   const auto* barracks = first_owned(observation, EntityType::Barracks);
   const auto* completed_barracks = first_owned(observation, EntityType::Barracks, true);
   const auto* turret = first_owned(observation, EntityType::Turret);
+  const auto* orphaned_barracks = first_orphaned_site(observation, EntityType::Barracks);
+  const auto* orphaned_turret = first_orphaned_site(observation, EntityType::Turret);
   const auto workers = owned_units(observation, EntityType::Worker);
   const auto army = army_units(observation);
 
   if ((tick == 1 || tick % 420 == 0) && !workers.empty() && command_building != nullptr) {
     if (const auto* resource = nearest_usable_resource(observation, command_building->position)) {
       auto gather = command_for(player_, CommandType::Gather);
-      for (const auto worker : workers) {
-        if (observation.permits(CommandType::Gather, worker)) {
-          gather.entities.push_back(worker);
+      for (const auto& worker : observation.owned_entities()) {
+        if (worker.type == EntityType::Worker && worker.alive() && !worker.under_construction &&
+            worker.order.type != OrderType::Build &&
+            observation.permits(CommandType::Gather, worker.id)) {
+          gather.entities.push_back(worker.id);
         }
       }
       gather.resource = resource->id;
@@ -127,7 +159,8 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
     }
   }
 
-  if (barracks == nullptr && command_building != nullptr && !workers.empty() &&
+  if ((barracks == nullptr || orphaned_barracks != nullptr) && command_building != nullptr &&
+      !workers.empty() &&
       (tick == 1 || tick % 180 == 0)) {
     const auto* capability = first_capability(observation, CommandType::Build, EntityType::Barracks);
     if (capability != nullptr) {
@@ -141,30 +174,40 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
       const auto attempt = static_cast<std::size_t>(tick / 180) % offsets.size();
       auto build = command_for(player_, CommandType::Build);
       build.entities = {capability->actor};
-      build.target = {command_building->position.x + direction * offsets[attempt].x,
-                      command_building->position.y + offsets[attempt].y};
+      if (orphaned_barracks != nullptr) {
+        build.target = orphaned_barracks->position;
+        build.target_entity = orphaned_barracks->id;
+      } else {
+        build.target = {command_building->position.x + direction * offsets[attempt].x,
+                        command_building->position.y + offsets[attempt].y};
+      }
       build.building_type = EntityType::Barracks;
       commands.push_back(std::move(build));
       return commands;
     }
   }
 
-  if (turret == nullptr && command_building != nullptr && completed_barracks != nullptr && !workers.empty() &&
-      tick >= 900 && tick % 240 == 0) {
+  if ((turret == nullptr || orphaned_turret != nullptr) && command_building != nullptr &&
+      completed_barracks != nullptr && !workers.empty() && tick >= 900 && tick % 240 == 0) {
     const auto* capability = first_capability(observation, CommandType::Build, EntityType::Turret);
     if (capability != nullptr) {
       const auto direction = command_building->position.x < observation.map_size().x / 2 ? 1 : -1;
       auto build = command_for(player_, CommandType::Build);
       build.entities = {capability->actor};
-      build.target = {command_building->position.x + direction * 330 * kWorldScale,
-                      command_building->position.y + 175 * kWorldScale};
+      if (orphaned_turret != nullptr) {
+        build.target = orphaned_turret->position;
+        build.target_entity = orphaned_turret->id;
+      } else {
+        build.target = {command_building->position.x + direction * 330 * kWorldScale,
+                        command_building->position.y + direction * 175 * kWorldScale};
+      }
       build.building_type = EntityType::Turret;
       commands.push_back(std::move(build));
       return commands;
     }
   }
 
-  if (tick > 0 && tick % 160 == 0) {
+  if (barracks != nullptr && tick > 0 && tick % 160 == 0) {
     if (const auto* capability =
             first_capability(observation, CommandType::Research, std::nullopt, ResearchId::TierTwo)) {
       auto research = command_for(player_, CommandType::Research);
@@ -185,21 +228,24 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
       }
     }
 
-    if (workers.size() < 5) {
+    if (barracks != nullptr && workers.size() < 5) {
       if (const auto* capability = first_capability(observation, CommandType::Train, EntityType::Worker)) {
         auto train = command_for(player_, CommandType::Train);
         train.producer = capability->actor;
         train.train_type = EntityType::Worker;
         commands.push_back(std::move(train));
+        return commands;
       }
     }
 
-    const auto army_type = (tick / 160) % 3 == 0 ? EntityType::Skirmisher : EntityType::Vanguard;
+    const auto army_type = (tick / 160 + strategy) % 3 == 0 ? EntityType::Skirmisher
+                                                            : EntityType::Vanguard;
     if (const auto* capability = first_capability(observation, CommandType::Train, army_type)) {
       auto train = command_for(player_, CommandType::Train);
       train.producer = capability->actor;
       train.train_type = army_type;
       commands.push_back(std::move(train));
+      return commands;
     }
   }
 
@@ -212,7 +258,8 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
       }
     }
     if (target == nullptr) {
-      const auto index = static_cast<std::size_t>(tick / 480) % observation.public_objectives().size();
+      const auto index = static_cast<std::size_t>(tick / 480 + strategy) %
+                         observation.public_objectives().size();
       target = &observation.public_objectives()[index];
     }
     auto capture = command_for(player_, CommandType::AttackMove);
@@ -227,7 +274,7 @@ std::vector<Command> CommanderAI::decide(const PlayerObservation& observation) c
     return commands;
   }
 
-  if (tick >= 2'400 && (tick - 2'400) % 800 == 0 && army.size() >= 6) {
+  if (tick >= 2'400 && (tick - 2'400) % 640 == 0 && army.size() >= 3) {
     const ObservedEnemy* known_command = nullptr;
     for (const auto& enemy : observation.known_enemies()) {
       if (enemy.type == EntityType::Command &&

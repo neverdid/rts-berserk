@@ -55,6 +55,7 @@ enum class PlayerId : std::uint8_t { One, Two };
 enum class FactionId : std::uint8_t { Compact, Ascendancy, Concord };
 enum class MatchMode : std::uint8_t { Story, Skirmish, PvP };
 enum class MatchStatus : std::uint8_t { Playing, Won, Lost };
+enum class CommandSource : std::uint8_t { External, CommanderAI };
 enum class VisibilityState : std::uint8_t { Hidden, Explored, Visible };
 enum class EntityKind : std::uint8_t { Unit, Building };
 enum class EntityType : std::uint8_t { Worker, Vanguard, Skirmisher, Command, Barracks, Turret };
@@ -268,6 +269,8 @@ struct SimulationConfig {
   FactionId player_one_faction{FactionId::Compact};
   FactionId player_two_faction{FactionId::Ascendancy};
   std::array<bool, 2> commander_players{false, false};
+  std::array<std::int32_t, 2> starting_ore{260, 260};
+  std::uint64_t match_seed{1};
   Vec2 map_size{world(2'400, 1'400)};
   std::int32_t visibility_cell_size{world(24, 0).x};
   std::int32_t navigation_cell_size{world(36, 0).x};
@@ -301,6 +304,8 @@ struct Command {
   ResearchId research{ResearchId::TierTwo};
   UnitStance stance{UnitStance::Aggressive};
   bool queue{};
+
+  auto operator<=>(const Command&) const = default;
 };
 
 struct CommandResult {
@@ -309,6 +314,18 @@ struct CommandResult {
   std::string_view reason{};
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept { return ok; }
+};
+
+struct CommandTraceEntry {
+  Tick issued_tick{};
+  Tick applied_tick{};
+  CommandSource source{CommandSource::External};
+  std::uint64_t observation_hash{};
+  Command command{};
+  bool accepted{};
+  CommandError error{CommandError::None};
+
+  auto operator<=>(const CommandTraceEntry&) const = default;
 };
 
 }  // namespace ashen::core

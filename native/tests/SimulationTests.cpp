@@ -505,6 +505,53 @@ void worker_construction_is_blocked_costed_and_completed() {
   CHECK(simulation.player(PlayerId::One).supply_cap == opening_cap + completed->supply_provided);
 }
 
+void orphaned_construction_can_be_resumed_without_paying_twice() {
+  auto simulation = sandbox();
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100)));
+  const auto first_worker =
+      simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(155, 100));
+  const auto replacement_worker =
+      simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(170, 150));
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Build,
+                                       .entities = {first_worker},
+                                       .target = world(310, 180),
+                                       .building_type = EntityType::Barracks})
+            .ok);
+  const auto site = std::ranges::find_if(simulation.entities(), [](const Entity& entity) {
+    return entity.type == EntityType::Barracks && entity.under_construction;
+  });
+  CHECK(site != simulation.entities().end());
+  const auto site_id = site == simulation.entities().end() ? EntityId{} : site->id;
+  const auto ore_after_purchase = simulation.player(PlayerId::One).ore;
+  simulation.run(40);
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Stop,
+                                       .entities = {first_worker}})
+            .ok);
+
+  const auto orphaned = simulation.observe(PlayerId::One);
+  CHECK(orphaned.permits(CommandType::Build, replacement_worker, EntityType::Barracks));
+  CHECK(simulation.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Build,
+                                       .entities = {replacement_worker},
+                                       .target_entity = site_id,
+                                       .building_type = EntityType::Barracks})
+            .ok);
+  CHECK(simulation.player(PlayerId::One).ore == ore_after_purchase);
+  CHECK(!simulation.execute_now(Command{.player = PlayerId::One,
+                                        .type = CommandType::Build,
+                                        .entities = {first_worker},
+                                        .target_entity = site_id,
+                                        .building_type = EntityType::Barracks})
+             .ok);
+
+  simulation.run(420);
+  const auto* completed = simulation.find_entity(site_id);
+  CHECK(completed != nullptr && !completed->under_construction);
+  CHECK(completed != nullptr && completed->hit_points == completed->max_hit_points);
+}
+
 void research_unlocks_units_and_refreshes_existing_troops() {
   auto simulation = sandbox();
   const auto command = simulation.spawn_entity(PlayerId::One, EntityType::Command, world(100, 100));
@@ -793,8 +840,8 @@ void observations_contain_only_seen_or_remembered_facts() {
 void hidden_state_cannot_change_a_commander_decision() {
   Simulation baseline{};
   Simulation perturbed{};
-  baseline.run(160);
-  perturbed.run(160);
+  baseline.run(180);
+  perturbed.run(180);
 
   const auto hidden_worker = std::ranges::find_if(perturbed.entities(), [](const Entity& entity) {
     return entity.owner == PlayerId::Two && entity.type == EntityType::Worker;
@@ -855,6 +902,39 @@ void core_commanders_can_own_both_players_and_queue_actions() {
   CHECK(std::ranges::any_of(simulation.entities(), [](const Entity& entity) {
     return entity.owner == PlayerId::Two && entity.type == EntityType::Barracks;
   }));
+  CHECK(!simulation.command_trace().empty());
+  CHECK(std::ranges::all_of(simulation.command_trace(), [](const CommandTraceEntry& entry) {
+    return entry.source == CommandSource::CommanderAI && entry.observation_hash != 0 && entry.accepted &&
+           entry.issued_tick <= entry.applied_tick;
+  }));
+}
+
+void command_trace_records_external_provenance_and_validation() {
+  auto simulation = sandbox();
+  const auto worker = simulation.spawn_entity(PlayerId::One, EntityType::Worker, world(100, 100));
+  simulation.enqueue(Command{.execute_tick = 2,
+                             .player = PlayerId::One,
+                             .type = CommandType::Move,
+                             .entities = {worker},
+                             .target = world(180, 100)});
+  simulation.run(3);
+  const auto rejected = simulation.execute_now(Command{.player = PlayerId::One,
+                                                        .type = CommandType::Move,
+                                                        .entities = {EntityId{99'999}},
+                                                        .target = world(220, 100)});
+
+  CHECK(!rejected.ok);
+  CHECK(simulation.command_trace().size() == 2);
+  const auto& applied = simulation.command_trace()[0];
+  CHECK(applied.source == CommandSource::External);
+  CHECK(applied.observation_hash == 0);
+  CHECK(applied.issued_tick == 0);
+  CHECK(applied.applied_tick == 2);
+  CHECK(applied.accepted);
+  const auto& invalid = simulation.command_trace()[1];
+  CHECK(invalid.source == CommandSource::External);
+  CHECK(!invalid.accepted);
+  CHECK(invalid.error == CommandError::InvalidEntity);
 }
 
 void core_bots_finish_a_deterministic_headless_match() {
@@ -903,6 +983,8 @@ int main() {
   run_test("rally point controls completed production", rally_point_controls_completed_production);
   run_test("worker construction is blocked, costed, and completed",
            worker_construction_is_blocked_costed_and_completed);
+  run_test("orphaned construction can be resumed without paying twice",
+           orphaned_construction_can_be_resumed_without_paying_twice);
   run_test("research unlocks units and refreshes existing troops",
            research_unlocks_units_and_refreshes_existing_troops);
   run_test("faction powers are distinct and obey cooldowns", faction_powers_are_distinct_and_obey_cooldowns);
@@ -921,6 +1003,8 @@ int main() {
            commander_commands_use_the_normal_validation_path);
   run_test("core commanders can own both players and queue actions",
            core_commanders_can_own_both_players_and_queue_actions);
+  run_test("command trace records external provenance and validation",
+           command_trace_records_external_provenance_and_validation);
   run_test("core bots finish a deterministic headless match",
            core_bots_finish_a_deterministic_headless_match);
 

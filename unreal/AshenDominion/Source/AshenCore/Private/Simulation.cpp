@@ -141,6 +141,9 @@ void Simulation::reset(const SimulationConfig& config) {
   winner_.reset();
   players_ = {PlayerState{PlayerId::One, config.player_one_faction},
               PlayerState{PlayerId::Two, config.player_two_faction}};
+  for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
+    players_[player_index(player_id)].ore = config.starting_ore[player_index(player_id)];
+  }
   command_seen_.fill(false);
   for (auto& grid : visibility_) {
     grid.reset(config_.map_size, config_.visibility_cell_size);
@@ -158,6 +161,7 @@ void Simulation::reset(const SimulationConfig& config) {
   resources_.clear();
   control_points_.clear();
   command_queue_.clear();
+  command_trace_.clear();
   ruin_tide_ = 4;
   next_entity_id_ = 1;
   next_resource_id_ = 1;
@@ -196,16 +200,24 @@ void Simulation::reset(const SimulationConfig& config) {
 }
 
 void Simulation::enqueue(Command command) {
+  enqueue_with_context(std::move(command), CommandSource::External, 0);
+}
+
+void Simulation::enqueue_with_context(Command command, const CommandSource source,
+                                      const std::uint64_t observation_hash) {
   if (command.sequence == 0) {
     command.sequence = next_sequence_++;
   } else {
     next_sequence_ = std::max(next_sequence_, command.sequence + 1);
   }
-  command_queue_.push_back(std::move(command));
-  std::stable_sort(command_queue_.begin(), command_queue_.end(), [](const Command& left, const Command& right) {
-    return std::tuple{left.execute_tick, left.sequence, player_index(left.player)} <
-           std::tuple{right.execute_tick, right.sequence, player_index(right.player)};
-  });
+  command_queue_.push_back(QueuedCommand{std::move(command), tick_, source, observation_hash});
+  std::stable_sort(command_queue_.begin(), command_queue_.end(),
+                   [](const QueuedCommand& left, const QueuedCommand& right) {
+                     return std::tuple{left.command.execute_tick, left.command.sequence,
+                                       player_index(left.command.player)} <
+                            std::tuple{right.command.execute_tick, right.command.sequence,
+                                       player_index(right.command.player)};
+                   });
 }
 
 CommandResult Simulation::execute_now(Command command) {
@@ -213,7 +225,10 @@ CommandResult Simulation::execute_now(Command command) {
   if (command.sequence == 0) {
     command.sequence = next_sequence_++;
   }
-  return apply_command(command);
+  const auto result = apply_command(command);
+  command_trace_.push_back(
+      CommandTraceEntry{tick_, tick_, CommandSource::External, 0, std::move(command), result.ok, result.error});
+  return result;
 }
 
 void Simulation::step() {
@@ -580,6 +595,27 @@ CommandResult Simulation::apply_build(const Command& command) {
   if (!is_building(command.building_type) || command.building_type == EntityType::Command) {
     return failure(CommandError::InvalidUnitType, "That structure cannot be constructed in a match.");
   }
+  if (command.target_entity) {
+    auto* site = find_entity_mutable(command.target_entity);
+    if (site == nullptr || site->owner != command.player || site->type != command.building_type ||
+        !site->under_construction) {
+      return failure(CommandError::InvalidTarget, "That construction site cannot be resumed.");
+    }
+    const auto staffed = std::ranges::any_of(entities_, [site_id = site->id](const Entity& entity) {
+      return entity.type == EntityType::Worker && entity.alive() &&
+             entity.order.type == OrderType::Build && entity.order.target_entity == site_id;
+    });
+    if (staffed) {
+      return failure(CommandError::InvalidTarget, "That construction site already has a builder.");
+    }
+
+    Order order{};
+    order.type = OrderType::Build;
+    order.target = site->position;
+    order.target_entity = site->id;
+    set_order(*worker, std::move(order), false);
+    return success();
+  }
   if (!can_place_building(command.target, command.building_type)) {
     return failure(CommandError::PlacementBlocked, "The construction site is blocked.");
   }
@@ -738,10 +774,13 @@ CommandResult Simulation::apply_set_stance(const Command& command) {
 }
 
 void Simulation::apply_due_commands() {
-  while (!command_queue_.empty() && command_queue_.front().execute_tick <= tick_) {
-    const auto command = std::move(command_queue_.front());
+  while (!command_queue_.empty() && command_queue_.front().command.execute_tick <= tick_) {
+    auto pending = std::move(command_queue_.front());
     command_queue_.erase(command_queue_.begin());
-    static_cast<void>(apply_command(command));
+    const auto result = apply_command(pending.command);
+    command_trace_.push_back(CommandTraceEntry{pending.issued_tick, tick_, pending.source,
+                                                pending.observation_hash, std::move(pending.command),
+                                                result.ok, result.error});
   }
 }
 
@@ -1680,6 +1719,7 @@ PlayerObservation Simulation::observe(const PlayerId observer) const {
   }
 
   return PlayerObservation{tick_,
+                           config_.match_seed,
                            observer,
                            player(enemy_of(observer)).faction,
                            status_,
@@ -1710,6 +1750,17 @@ std::vector<CommandCapability> Simulation::command_capabilities(const PlayerId o
                                                       [](const ObservedEnemy& enemy) {
                                                         return enemy.currently_visible;
                                                       });
+  const auto has_orphaned_site = [this, owner](const EntityType type) {
+    return std::ranges::any_of(entities_, [this, owner, type](const Entity& site) {
+      if (site.owner != owner || site.type != type || !site.alive() || !site.under_construction) {
+        return false;
+      }
+      return std::ranges::none_of(entities_, [site_id = site.id](const Entity& worker) {
+        return worker.type == EntityType::Worker && worker.alive() &&
+               worker.order.type == OrderType::Build && worker.order.target_entity == site_id;
+      });
+    });
+  };
 
   const auto add = [&result](const CommandType type, const EntityId actor = {},
                              const std::optional<EntityType> entity_type = std::nullopt,
@@ -1739,7 +1790,8 @@ std::vector<CommandCapability> Simulation::command_capabilities(const PlayerId o
           add(CommandType::Gather, entity.id);
         }
         for (const auto building : {EntityType::Barracks, EntityType::Turret}) {
-          if (state.ore >= entity_definition(state.faction, building).cost) {
+          if (state.ore >= entity_definition(state.faction, building).cost ||
+              has_orphaned_site(building)) {
             add(CommandType::Build, entity.id, building);
           }
         }
@@ -1906,10 +1958,13 @@ void Simulation::update_commanders() {
   }
 
   std::array<std::vector<Command>, 2> decisions;
+  std::array<std::uint64_t, 2> observation_hashes{};
   for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
     const auto index = player_index(player_id);
     if (config_.commander_players[index]) {
-      decisions[index] = commanders_[index].decide(observe(player_id));
+      const auto observation = observe(player_id);
+      observation_hashes[index] = observation.hash();
+      decisions[index] = commanders_[index].decide(observation);
     }
   }
   for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
@@ -1917,7 +1972,8 @@ void Simulation::update_commanders() {
       command.player = player_id;
       command.execute_tick = tick_;
       command.sequence = 0;
-      enqueue(std::move(command));
+      enqueue_with_context(std::move(command), CommandSource::CommanderAI,
+                           observation_hashes[player_index(player_id)]);
     }
   }
 }
@@ -2035,6 +2091,10 @@ std::uint64_t Simulation::state_hash() const noexcept {
   for (const auto enabled : config_.commander_players) {
     hash_integral(hash, enabled);
   }
+  for (const auto ore : config_.starting_ore) {
+    hash_integral(hash, ore);
+  }
+  hash_integral(hash, config_.match_seed);
   hash_integral(hash, config_.seed_starting_forces);
   hash_vec(hash, config_.map_size);
   hash_integral(hash, config_.visibility_cell_size);
@@ -2175,11 +2235,17 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, point.income_progress);
   }
 
-  for (const auto& command : command_queue_) {
+  hash_integral(hash, static_cast<std::uint64_t>(command_queue_.size()));
+  for (const auto& pending : command_queue_) {
+    const auto& command = pending.command;
+    hash_integral(hash, pending.issued_tick);
+    hash_integral(hash, static_cast<std::uint8_t>(pending.source));
+    hash_integral(hash, pending.observation_hash);
     hash_integral(hash, command.execute_tick);
     hash_integral(hash, command.sequence);
     hash_integral(hash, static_cast<std::uint8_t>(command.player));
     hash_integral(hash, static_cast<std::uint8_t>(command.type));
+    hash_integral(hash, static_cast<std::uint64_t>(command.entities.size()));
     for (const auto entity : command.entities) {
       hash_integral(hash, entity.value);
     }
