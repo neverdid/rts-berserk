@@ -37,6 +37,7 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] const std::vector<Entity>& entities() const noexcept { return entities_; }
   [[nodiscard]] const std::vector<ResourceNode>& resources() const noexcept { return resources_; }
   [[nodiscard]] const std::vector<ControlPoint>& control_points() const noexcept { return control_points_; }
+  [[nodiscard]] const std::vector<CommandTraceEntry>& command_trace() const noexcept { return command_trace_; }
   [[nodiscard]] const Entity* find_entity(EntityId id) const noexcept;
   [[nodiscard]] const ResourceNode* find_resource(ResourceId id) const noexcept;
   [[nodiscard]] const ControlPoint* find_control_point(ControlPointId id) const noexcept;
@@ -59,6 +60,7 @@ class ASHENCORE_API Simulation final {
   [[nodiscard]] Entity* find_entity_mutable(EntityId id) noexcept;
   [[nodiscard]] ResourceNode* find_resource_mutable(ResourceId id) noexcept;
   [[nodiscard]] ControlPoint* find_control_point_mutable(ControlPointId id) noexcept;
+  void enqueue_with_context(Command command, CommandSource source, std::uint64_t observation_hash);
   [[nodiscard]] CommandResult apply_command(const Command& command);
   [[nodiscard]] CommandResult apply_move(const Command& command);
   [[nodiscard]] CommandResult apply_attack(const Command& command);
@@ -125,6 +127,13 @@ class ASHENCORE_API Simulation final {
     Tick observed_tick{};
   };
 
+  struct QueuedCommand {
+    Command command{};
+    Tick issued_tick{};
+    CommandSource source{CommandSource::External};
+    std::uint64_t observation_hash{};
+  };
+
   SimulationConfig config_{};
   Tick tick_{};
   MatchStatus status_{MatchStatus::Playing};
@@ -139,7 +148,8 @@ class ASHENCORE_API Simulation final {
   std::vector<Entity> entities_{};
   std::vector<ResourceNode> resources_{};
   std::vector<ControlPoint> control_points_{};
-  std::vector<Command> command_queue_{};
+  std::vector<QueuedCommand> command_queue_{};
+  std::vector<CommandTraceEntry> command_trace_{};
   std::int32_t ruin_tide_{4};
   std::uint32_t next_entity_id_{1};
   std::uint32_t next_resource_id_{1};

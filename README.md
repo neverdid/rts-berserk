@@ -141,7 +141,18 @@ ctest --preset dev -C Debug
 ```
 
 The generated `ashen_headless` executable advances a match without graphics and prints its final tick,
-economy, result, and deterministic state hash.
+economy, result, and deterministic state hash. `ashen_self_play` runs the faction-and-spawn matrix plus
+economy-recovery, blocked-opening, and early-rush fixtures for every faction. It duplicates each seeded run to
+detect nondeterminism and writes a stable machine-readable report:
+
+```powershell
+.\build\native\native\Debug\ashen_self_play.exe `
+  --seeds 2 --output build\native\self-play-report.json
+```
+
+Hard correctness or behavior failures return a nonzero exit code. The report includes named fixture checks and
+diagnostic end state; balance alerts remain visible without failing the run. CI also requires the Windows and
+Linux reports to be byte-identical.
 
 ## Archived web prototype
 

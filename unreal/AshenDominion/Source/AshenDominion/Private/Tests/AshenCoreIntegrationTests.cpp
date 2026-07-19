@@ -143,14 +143,28 @@ bool FAshenCoreOwnedCommanderTest::RunTest(const FString &Parameters)
               {
                   return EntityState.type == EntityType::Barracks && EntityState.under_construction;
               })), 2);
+    TestTrue(TEXT("Commander commands retain observation provenance"),
+             !First.command_trace().empty() &&
+                 std::ranges::all_of(First.command_trace(), [](const CommandTraceEntry &Entry)
+                 {
+                     return Entry.source == CommandSource::CommanderAI && Entry.observation_hash != 0 &&
+                         Entry.accepted && Entry.issued_tick <= Entry.applied_tick;
+                 }));
 
-    constexpr Tick MaximumMatchTicks = 10'000;
+    constexpr Tick MaximumMatchTicks = 60'000;
     while (First.status() == MatchStatus::Playing && First.tick() < MaximumMatchTicks)
     {
         First.step();
         Second.step();
+        if (First.tick() % 1'000 == 0)
+        {
+            TestTrue(TEXT("Equivalent bot matches remain deterministic during play"),
+                     First.state_hash() == Second.state_hash());
+        }
     }
 
+    TestTrue(TEXT("Core-owned bot match finishes within its tick budget"),
+             First.status() != MatchStatus::Playing);
     TestTrue(TEXT("Two core-owned bots finish without Unreal decision logic"), First.winner().has_value());
     TestEqual(TEXT("Equivalent bot matches finish on the same tick"),
               static_cast<int64>(First.tick()), static_cast<int64>(Second.tick()));
