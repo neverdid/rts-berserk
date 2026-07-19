@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ashen/core/AIDecision.hpp"
 #include "ashen/core/PlayerObservation.hpp"
 
 #include <vector>
@@ -13,6 +14,7 @@ class ASHENCORE_API CommanderAI final {
   explicit constexpr CommanderAI(const PlayerId player) noexcept : player_(player) {}
 
   [[nodiscard]] PlayerId player() const noexcept { return player_; }
+  [[nodiscard]] CommanderPlan plan(const PlayerObservation& observation) const;
   [[nodiscard]] std::vector<Command> decide(const PlayerObservation& observation) const;
 
  private:

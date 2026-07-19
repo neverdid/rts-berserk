@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <locale>
 #include <optional>
 #include <ranges>
@@ -81,6 +82,27 @@ void hash_command(std::uint64_t& hash, const core::Command& command) noexcept {
   hash_byte(hash, static_cast<std::uint8_t>(command.research));
   hash_byte(hash, static_cast<std::uint8_t>(command.stance));
   hash_bool(hash, command.queue);
+}
+
+void hash_ai_candidate(std::uint64_t& hash, const core::AICandidateScore& candidate) noexcept {
+  hash_byte(hash, static_cast<std::uint8_t>(candidate.action));
+  hash_u32(hash, candidate.target_entity.value);
+  hash_u32(hash, candidate.target_objective.value);
+  hash_vec(hash, candidate.target_position);
+  hash_bool(hash, candidate.entity_type.has_value());
+  if (candidate.entity_type.has_value()) {
+    hash_byte(hash, static_cast<std::uint8_t>(*candidate.entity_type));
+  }
+  hash_bool(hash, candidate.research.has_value());
+  if (candidate.research.has_value()) {
+    hash_byte(hash, static_cast<std::uint8_t>(*candidate.research));
+  }
+  hash_i32(hash, candidate.total_score);
+  hash_u64(hash, static_cast<std::uint64_t>(candidate.components.size()));
+  for (const auto& component : candidate.components) {
+    hash_byte(hash, static_cast<std::uint8_t>(component.reason));
+    hash_i32(hash, component.score);
+  }
 }
 
 [[nodiscard]] constexpr bool is_army_unit(const core::EntityType type) noexcept {
@@ -288,7 +310,8 @@ void update_player_metrics(const core::PlayerObservation& observation,
 void add_checkpoint(const core::Simulation& simulation, MatchReport& report) {
   report.checkpoints.push_back(
       CheckpointReport{simulation.tick(), simulation.state_hash(),
-                       command_trace_hash(simulation.command_trace())});
+                       command_trace_hash(simulation.command_trace()),
+                       ai_decision_trace_hash(simulation.ai_decision_trace())});
 }
 
 void add_failure(SuiteReport& suite, const MatchReport& match, std::string code,
@@ -305,6 +328,24 @@ void audit_match(SuiteReport& suite, const MatchReport& match) {
   if (match.players[0].commands_issued + match.players[1].commands_issued == 0) {
     add_failure(suite, match, "empty_command_trace",
                 "The commanders produced no applied command trace.");
+  }
+  if (match.invalid_ai_decisions != 0 || match.unlinked_ai_commands != 0) {
+    add_failure(suite, match, "invalid_ai_decision_trace",
+                "AI decision scores, provenance, or command-result links failed validation.");
+  }
+  if (!match.timed_out && match.unresolved_ai_decisions != 0) {
+    add_failure(suite, match, "unresolved_ai_decision",
+                "A completed match retained an AI decision without an authoritative command result.");
+  }
+  constexpr std::array<std::string_view, 3> layer_names{"strategic", "tactical", "micro"};
+  for (std::size_t layer = 0; layer < layer_names.size(); ++layer) {
+    if (match.players[0].ai_decisions_by_layer[layer] +
+            match.players[1].ai_decisions_by_layer[layer] ==
+        0) {
+      add_failure(suite, match, "missing_ai_layer",
+                  "The full match produced no " + std::string{layer_names[layer]} +
+                      " decision record.");
+    }
   }
   if (!match.first_contact_tick.has_value()) {
     add_failure(suite, match, "missing_first_contact",
@@ -515,6 +556,20 @@ void write_player_json(std::ostringstream& output, const PlayerMatchReport& play
   write_indent(output, indent + 2);
   output << "\"commands_without_observation\": " << player.commands_without_observation << ",\n";
   write_indent(output, indent + 2);
+  output << "\"ai_decisions_by_layer\": {\"strategic\": "
+         << player.ai_decisions_by_layer[static_cast<std::size_t>(core::AIDecisionLayer::Strategic)]
+         << ", \"tactical\": "
+         << player.ai_decisions_by_layer[static_cast<std::size_t>(core::AIDecisionLayer::Tactical)]
+         << ", \"micro\": "
+         << player.ai_decisions_by_layer[static_cast<std::size_t>(core::AIDecisionLayer::Micro)]
+         << "},\n";
+  write_indent(output, indent + 2);
+  output << "\"ai_decisions_accepted\": " << player.ai_decisions_accepted << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"ai_decisions_rejected\": " << player.ai_decisions_rejected << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"ai_decisions_unresolved\": " << player.ai_decisions_unresolved << ",\n";
+  write_indent(output, indent + 2);
   output << "\"rejection_reasons\": [";
   for (std::size_t index = 0; index < player.rejection_reasons.size(); ++index) {
     const auto& reason = player.rejection_reasons[index];
@@ -574,6 +629,15 @@ void write_match_json(std::ostringstream& output, const MatchReport& match,
   write_indent(output, indent + 2);
   output << "\"command_trace_hash\": \"" << hex_hash(match.command_trace_hash) << "\",\n";
   write_indent(output, indent + 2);
+  output << "\"ai_decision_trace_hash\": \"" << hex_hash(match.ai_decision_trace_hash)
+         << "\",\n";
+  write_indent(output, indent + 2);
+  output << "\"invalid_ai_decisions\": " << match.invalid_ai_decisions << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"unresolved_ai_decisions\": " << match.unresolved_ai_decisions << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"unlinked_ai_commands\": " << match.unlinked_ai_commands << ",\n";
+  write_indent(output, indent + 2);
   output << "\"checkpoints\": [";
   if (!match.checkpoints.empty()) {
     output << '\n';
@@ -582,7 +646,8 @@ void write_match_json(std::ostringstream& output, const MatchReport& match,
       write_indent(output, indent + 4);
       output << "{\"tick\": " << checkpoint.tick << ", \"state_hash\": \""
              << hex_hash(checkpoint.state_hash) << "\", \"command_trace_hash\": \""
-             << hex_hash(checkpoint.command_trace_hash) << "\"}";
+             << hex_hash(checkpoint.command_trace_hash) << "\", \"ai_decision_trace_hash\": \""
+             << hex_hash(checkpoint.ai_decision_trace_hash) << "\"}";
       output << (index + 1 == match.checkpoints.size() ? "\n" : ",\n");
     }
     write_indent(output, indent + 2);
@@ -644,6 +709,15 @@ void write_fixed_scenario_json(std::ostringstream& output,
   output << "\"final_state_hash\": \"" << hex_hash(scenario.final_state_hash) << "\",\n";
   write_indent(output, indent + 2);
   output << "\"command_trace_hash\": \"" << hex_hash(scenario.command_trace_hash) << "\",\n";
+  write_indent(output, indent + 2);
+  output << "\"ai_decision_trace_hash\": \"" << hex_hash(scenario.ai_decision_trace_hash)
+         << "\",\n";
+  write_indent(output, indent + 2);
+  output << "\"invalid_ai_decisions\": " << scenario.invalid_ai_decisions << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"unresolved_ai_decisions\": " << scenario.unresolved_ai_decisions << ",\n";
+  write_indent(output, indent + 2);
+  output << "\"unlinked_ai_commands\": " << scenario.unlinked_ai_commands << ",\n";
   write_indent(output, indent + 2);
   output << "\"checks\": [";
   if (!scenario.checks.empty()) {
@@ -713,6 +787,7 @@ std::uint64_t command_trace_hash(const std::vector<core::CommandTraceEntry>& tra
     hash_u64(hash, entry.applied_tick);
     hash_byte(hash, static_cast<std::uint8_t>(entry.source));
     hash_u64(hash, entry.observation_hash);
+    hash_u64(hash, entry.ai_decision_id);
     hash_command(hash, entry.command);
     hash_bool(hash, entry.accepted);
     hash_byte(hash, static_cast<std::uint8_t>(entry.error));
@@ -720,16 +795,190 @@ std::uint64_t command_trace_hash(const std::vector<core::CommandTraceEntry>& tra
   return hash;
 }
 
+std::uint64_t ai_decision_trace_hash(
+    const std::vector<core::AIDecisionRecord>& trace) noexcept {
+  auto hash = kFnvOffset;
+  hash_u64(hash, static_cast<std::uint64_t>(trace.size()));
+  for (const auto& record : trace) {
+    hash_u64(hash, record.id);
+    hash_u64(hash, record.observation_tick);
+    hash_u64(hash, record.observation_hash);
+    hash_byte(hash, static_cast<std::uint8_t>(record.player));
+    hash_byte(hash, static_cast<std::uint8_t>(record.layer));
+    hash_u64(hash, record.cadence_ticks);
+    hash_u64(hash, static_cast<std::uint64_t>(record.candidates.size()));
+    for (const auto& candidate : record.candidates) {
+      hash_ai_candidate(hash, candidate);
+    }
+    hash_u64(hash, static_cast<std::uint64_t>(record.selected_candidate));
+    hash_byte(hash, static_cast<std::uint8_t>(record.selected_action));
+    hash_byte(hash, static_cast<std::uint8_t>(record.winning_reason));
+    hash_command(hash, record.command);
+    hash_u64(hash, record.command_sequence);
+    hash_u64(hash, record.applied_tick);
+    hash_byte(hash, static_cast<std::uint8_t>(record.command_status));
+    hash_byte(hash, static_cast<std::uint8_t>(record.command_error));
+  }
+  return hash;
+}
+
 namespace {
+
+struct DecisionAudit {
+  std::uint64_t invalid_records{};
+  std::uint64_t unresolved_records{};
+  std::uint64_t unlinked_commands{};
+};
+
+[[nodiscard]] core::AIUtilityReason expected_winning_reason(
+    const core::AICandidateScore& candidate) noexcept {
+  auto reason = core::AIUtilityReason::Baseline;
+  auto best_score = std::numeric_limits<std::int32_t>::min();
+  for (const auto& component : candidate.components) {
+    if (component.score > best_score ||
+        (component.score == best_score && component.reason < reason)) {
+      reason = component.reason;
+      best_score = component.score;
+    }
+  }
+  return reason;
+}
+
+[[nodiscard]] DecisionAudit audit_decisions(
+    const std::vector<core::AIDecisionRecord>& decisions,
+    const std::vector<core::CommandTraceEntry>& commands) {
+  DecisionAudit audit{};
+  std::vector<std::uint64_t> ids;
+  ids.reserve(decisions.size());
+  std::vector<const core::CommandTraceEntry*> ai_commands;
+  for (const auto& command : commands) {
+    if (command.source == core::CommandSource::CommanderAI) {
+      ai_commands.push_back(&command);
+    }
+  }
+  std::ranges::sort(ai_commands, {}, [](const core::CommandTraceEntry* command) {
+    return command->ai_decision_id;
+  });
+
+  std::vector<const core::AIDecisionRecord*> decisions_by_id;
+  decisions_by_id.reserve(decisions.size());
+  for (const auto& decision : decisions) {
+    decisions_by_id.push_back(&decision);
+  }
+  std::ranges::sort(decisions_by_id, {}, [](const core::AIDecisionRecord* decision) {
+    return decision->id;
+  });
+
+  for (const auto& decision : decisions) {
+    ids.push_back(decision.id);
+    auto valid = decision.id != 0 && decision.observation_hash != 0 &&
+                 decision.cadence_ticks == core::ai_decision_cadence(decision.layer) &&
+                 core::ai_decision_due(decision.layer, decision.observation_tick) &&
+                 !decision.candidates.empty() &&
+                 decision.selected_candidate < decision.candidates.size() &&
+                 decision.command.player == decision.player &&
+                 decision.command_sequence != 0 &&
+                 decision.command.sequence == decision.command_sequence &&
+                 decision.command.execute_tick == decision.observation_tick;
+
+    for (const auto& candidate : decision.candidates) {
+      std::int64_t component_total = 0;
+      for (const auto& component : candidate.components) {
+        component_total += component.score;
+      }
+      valid = valid && !candidate.components.empty() &&
+              component_total == static_cast<std::int64_t>(candidate.total_score);
+    }
+
+    if (decision.selected_candidate < decision.candidates.size()) {
+      const auto& selected = decision.candidates[decision.selected_candidate];
+      valid = valid && selected.action == decision.selected_action &&
+              expected_winning_reason(selected) == decision.winning_reason;
+      for (const auto& candidate : decision.candidates) {
+        valid = valid && selected.total_score >= candidate.total_score;
+      }
+    }
+
+    const auto command_at = std::ranges::lower_bound(
+        ai_commands, decision.id, {}, [](const core::CommandTraceEntry* command) {
+          return command->ai_decision_id;
+        });
+    const auto* command = command_at != ai_commands.end() &&
+                                  (*command_at)->ai_decision_id == decision.id
+                              ? *command_at
+                              : nullptr;
+    if (decision.command_status == core::AICommandStatus::Queued) {
+      ++audit.unresolved_records;
+      valid = valid && command == nullptr && decision.applied_tick == 0 &&
+              decision.command_error == core::CommandError::None;
+    } else {
+      valid = valid && command != nullptr;
+      if (command != nullptr) {
+        const auto accepted = decision.command_status == core::AICommandStatus::Accepted;
+        valid = valid && command->observation_hash == decision.observation_hash &&
+                command->command == decision.command &&
+                command->command.sequence == decision.command_sequence &&
+                command->applied_tick == decision.applied_tick &&
+                command->accepted == accepted && command->error == decision.command_error;
+      }
+    }
+    if (!valid) {
+      ++audit.invalid_records;
+    }
+  }
+
+  std::ranges::sort(ids);
+  for (std::size_t index = 1; index < ids.size(); ++index) {
+    if (ids[index] == ids[index - 1]) {
+      ++audit.invalid_records;
+    }
+  }
+
+  for (const auto* command : ai_commands) {
+    const auto decision_at = std::ranges::lower_bound(
+        decisions_by_id, command->ai_decision_id, {},
+        [](const core::AIDecisionRecord* decision) { return decision->id; });
+    const auto* decision = decision_at != decisions_by_id.end() &&
+                                   (*decision_at)->id == command->ai_decision_id
+                               ? *decision_at
+                               : nullptr;
+    if (command->ai_decision_id == 0 || decision == nullptr ||
+        decision->command_sequence != command->command.sequence) {
+      ++audit.unlinked_commands;
+    }
+  }
+  return audit;
+}
+
+void record_decision_metrics(const std::vector<core::AIDecisionRecord>& decisions,
+                             std::array<PlayerMatchReport, 2>& reports) noexcept {
+  for (const auto& decision : decisions) {
+    auto& report = reports[core::player_index(decision.player)];
+    ++report.ai_decisions_by_layer[static_cast<std::size_t>(decision.layer)];
+    switch (decision.command_status) {
+      case core::AICommandStatus::Queued:
+        ++report.ai_decisions_unresolved;
+        break;
+      case core::AICommandStatus::Accepted:
+        ++report.ai_decisions_accepted;
+        break;
+      case core::AICommandStatus::Rejected:
+        ++report.ai_decisions_rejected;
+        break;
+    }
+  }
+}
 
 struct ScenarioExecution {
   FixedScenarioReport report{};
   std::vector<core::CommandTraceEntry> trace{};
+  std::vector<core::AIDecisionRecord> decision_trace{};
 };
 
 struct MatchExecution {
   MatchReport report{};
   std::vector<core::CommandTraceEntry> trace{};
+  std::vector<core::AIDecisionRecord> decision_trace{};
 };
 
 [[nodiscard]] std::size_t owned_entity_count(const core::Simulation& simulation,
@@ -837,6 +1086,12 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
   }
   report.final_state_hash = simulation.state_hash();
   report.command_trace_hash = command_trace_hash(simulation.command_trace());
+  report.ai_decision_trace_hash = ai_decision_trace_hash(simulation.ai_decision_trace());
+  const auto decision_audit =
+      audit_decisions(simulation.ai_decision_trace(), simulation.command_trace());
+  report.invalid_ai_decisions = decision_audit.invalid_records;
+  report.unresolved_ai_decisions = decision_audit.unresolved_records;
+  report.unlinked_ai_commands = decision_audit.unlinked_commands;
 
   const auto ai_trace_present = std::ranges::any_of(
       simulation.command_trace(), [](const core::CommandTraceEntry& entry) {
@@ -849,6 +1104,10 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
       });
   add_scenario_check(report, "auditable_commander_trace", ai_trace_auditable,
                      "Every commander action must retain a nonzero observation hash.");
+  add_scenario_check(report, "auditable_ai_decisions",
+                     !simulation.ai_decision_trace().empty() &&
+                         report.invalid_ai_decisions == 0 && report.unlinked_ai_commands == 0,
+                     "Every AI choice must preserve valid utility scores and its command-result link.");
 
   if (scenario.id == FixedScenarioId::EconomyDeficitRecovery) {
     add_scenario_check(
@@ -899,7 +1158,8 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
   }
 
   report.passed = std::ranges::all_of(report.checks, &ScenarioCheckReport::passed);
-  return ScenarioExecution{std::move(report), simulation.command_trace()};
+  return ScenarioExecution{std::move(report), simulation.command_trace(),
+                           simulation.ai_decision_trace()};
 }
 
 [[nodiscard]] MatchExecution execute_match(const BenchmarkCase& benchmark_case,
@@ -976,6 +1236,13 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
   report.winner = simulation.winner();
   report.final_state_hash = simulation.state_hash();
   report.command_trace_hash = command_trace_hash(simulation.command_trace());
+  report.ai_decision_trace_hash = ai_decision_trace_hash(simulation.ai_decision_trace());
+  const auto decision_audit =
+      audit_decisions(simulation.ai_decision_trace(), simulation.command_trace());
+  report.invalid_ai_decisions = decision_audit.invalid_records;
+  report.unresolved_ai_decisions = decision_audit.unresolved_records;
+  report.unlinked_ai_commands = decision_audit.unlinked_commands;
+  record_decision_metrics(simulation.ai_decision_trace(), report.players);
   for (const auto player : {core::PlayerId::One, core::PlayerId::Two}) {
     const auto index = core::player_index(player);
     const auto observation = simulation.observe(player);
@@ -1002,7 +1269,8 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
   } else {
     report.first_contact_tick = right_contact;
   }
-  return MatchExecution{std::move(report), simulation.command_trace()};
+  return MatchExecution{std::move(report), simulation.command_trace(),
+                        simulation.ai_decision_trace()};
 }
 
 }  // namespace
@@ -1042,7 +1310,8 @@ SuiteReport run_suite(const SuiteOptions& options) {
         if (options.verify_determinism) {
           const auto replay = execute_match(benchmark_case, seed, options.maximum_match_ticks,
                                             options.checkpoint_interval);
-          if (execution.report != replay.report || execution.trace != replay.trace) {
+          if (execution.report != replay.report || execution.trace != replay.trace ||
+              execution.decision_trace != replay.decision_trace) {
             add_failure(report, execution.report, "nondeterministic_replay",
                         "Duplicate runs produced different telemetry, traces, checkpoints, or outcomes.");
           }
@@ -1054,7 +1323,8 @@ SuiteReport run_suite(const SuiteOptions& options) {
         auto execution = execute_fixed_scenario(scenario, seed);
         if (options.verify_determinism) {
           const auto replay = execute_fixed_scenario(scenario, seed);
-          if (execution.report != replay.report || execution.trace != replay.trace) {
+          if (execution.report != replay.report || execution.trace != replay.trace ||
+              execution.decision_trace != replay.decision_trace) {
             report.hard_failures.push_back(HardFailure{
                 execution.report.scenario, execution.report.seed, "nondeterministic_scenario_replay",
                 "Duplicate fixed scenarios produced different checks, traces, or final state.",

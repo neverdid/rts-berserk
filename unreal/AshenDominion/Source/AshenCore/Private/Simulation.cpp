@@ -162,11 +162,13 @@ void Simulation::reset(const SimulationConfig& config) {
   control_points_.clear();
   command_queue_.clear();
   command_trace_.clear();
+  ai_decision_trace_.clear();
   ruin_tide_ = 4;
   next_entity_id_ = 1;
   next_resource_id_ = 1;
   next_control_point_id_ = 1;
   next_sequence_ = 1;
+  next_ai_decision_id_ = 1;
 
   if (!config.seed_starting_forces) {
     return;
@@ -200,17 +202,20 @@ void Simulation::reset(const SimulationConfig& config) {
 }
 
 void Simulation::enqueue(Command command) {
-  enqueue_with_context(std::move(command), CommandSource::External, 0);
+  static_cast<void>(enqueue_with_context(std::move(command), CommandSource::External, 0));
 }
 
-void Simulation::enqueue_with_context(Command command, const CommandSource source,
-                                      const std::uint64_t observation_hash) {
+std::uint64_t Simulation::enqueue_with_context(Command command, const CommandSource source,
+                                               const std::uint64_t observation_hash,
+                                               const std::uint64_t ai_decision_id) {
   if (command.sequence == 0) {
     command.sequence = next_sequence_++;
   } else {
     next_sequence_ = std::max(next_sequence_, command.sequence + 1);
   }
-  command_queue_.push_back(QueuedCommand{std::move(command), tick_, source, observation_hash});
+  const auto sequence = command.sequence;
+  command_queue_.push_back(
+      QueuedCommand{std::move(command), tick_, source, observation_hash, ai_decision_id});
   std::stable_sort(command_queue_.begin(), command_queue_.end(),
                    [](const QueuedCommand& left, const QueuedCommand& right) {
                      return std::tuple{left.command.execute_tick, left.command.sequence,
@@ -218,6 +223,7 @@ void Simulation::enqueue_with_context(Command command, const CommandSource sourc
                             std::tuple{right.command.execute_tick, right.command.sequence,
                                        player_index(right.command.player)};
                    });
+  return sequence;
 }
 
 CommandResult Simulation::execute_now(Command command) {
@@ -226,8 +232,8 @@ CommandResult Simulation::execute_now(Command command) {
     command.sequence = next_sequence_++;
   }
   const auto result = apply_command(command);
-  command_trace_.push_back(
-      CommandTraceEntry{tick_, tick_, CommandSource::External, 0, std::move(command), result.ok, result.error});
+  command_trace_.push_back(CommandTraceEntry{tick_, tick_, CommandSource::External, 0, 0,
+                                              std::move(command), result.ok, result.error});
   return result;
 }
 
@@ -779,9 +785,25 @@ void Simulation::apply_due_commands() {
     command_queue_.erase(command_queue_.begin());
     const auto result = apply_command(pending.command);
     command_trace_.push_back(CommandTraceEntry{pending.issued_tick, tick_, pending.source,
-                                                pending.observation_hash, std::move(pending.command),
-                                                result.ok, result.error});
+                                                pending.observation_hash, pending.ai_decision_id,
+                                                std::move(pending.command), result.ok, result.error});
+    resolve_ai_decision(pending.ai_decision_id, tick_, result);
   }
+}
+
+void Simulation::resolve_ai_decision(const std::uint64_t decision_id, const Tick applied_tick,
+                                     const CommandResult& result) noexcept {
+  if (decision_id == 0) {
+    return;
+  }
+  const auto record = std::ranges::find(ai_decision_trace_.rbegin(), ai_decision_trace_.rend(),
+                                        decision_id, &AIDecisionRecord::id);
+  if (record == ai_decision_trace_.rend()) {
+    return;
+  }
+  record->applied_tick = applied_tick;
+  record->command_status = result.ok ? AICommandStatus::Accepted : AICommandStatus::Rejected;
+  record->command_error = result.error;
 }
 
 void Simulation::update_ruin_tide() {
@@ -1957,23 +1979,45 @@ void Simulation::update_commanders() {
     return;
   }
 
-  std::array<std::vector<Command>, 2> decisions;
+  std::array<CommanderPlan, 2> plans;
   std::array<std::uint64_t, 2> observation_hashes{};
+  std::array<Tick, 2> observation_ticks{};
   for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
     const auto index = player_index(player_id);
     if (config_.commander_players[index]) {
       const auto observation = observe(player_id);
       observation_hashes[index] = observation.hash();
-      decisions[index] = commanders_[index].decide(observation);
+      observation_ticks[index] = observation.tick();
+      plans[index] = commanders_[index].plan(observation);
     }
   }
   for (const auto player_id : {PlayerId::One, PlayerId::Two}) {
-    for (auto& command : decisions[player_index(player_id)]) {
+    const auto index = player_index(player_id);
+    for (auto& decision : plans[index].decisions) {
+      auto command = decision.command;
       command.player = player_id;
       command.execute_tick = tick_;
       command.sequence = 0;
-      enqueue_with_context(std::move(command), CommandSource::CommanderAI,
-                           observation_hashes[player_index(player_id)]);
+      auto recorded_command = command;
+      const auto decision_id = next_ai_decision_id_++;
+      const auto sequence = enqueue_with_context(std::move(command), CommandSource::CommanderAI,
+                                                 observation_hashes[index], decision_id);
+      recorded_command.sequence = sequence;
+
+      AIDecisionRecord record{};
+      record.id = decision_id;
+      record.observation_tick = observation_ticks[index];
+      record.observation_hash = observation_hashes[index];
+      record.player = player_id;
+      record.layer = decision.layer;
+      record.cadence_ticks = decision.cadence_ticks;
+      record.candidates = std::move(decision.candidates);
+      record.selected_candidate = decision.selected_candidate;
+      record.selected_action = decision.selected_action;
+      record.winning_reason = decision.winning_reason;
+      record.command = std::move(recorded_command);
+      record.command_sequence = sequence;
+      ai_decision_trace_.push_back(std::move(record));
     }
   }
 }
@@ -2110,6 +2154,7 @@ std::uint64_t Simulation::state_hash() const noexcept {
   hash_integral(hash, next_resource_id_);
   hash_integral(hash, next_control_point_id_);
   hash_integral(hash, next_sequence_);
+  hash_integral(hash, next_ai_decision_id_);
   hash_integral(hash, ruin_tide_);
   for (const auto seen : command_seen_) {
     hash_integral(hash, seen);
@@ -2241,6 +2286,7 @@ std::uint64_t Simulation::state_hash() const noexcept {
     hash_integral(hash, pending.issued_tick);
     hash_integral(hash, static_cast<std::uint8_t>(pending.source));
     hash_integral(hash, pending.observation_hash);
+    hash_integral(hash, pending.ai_decision_id);
     hash_integral(hash, command.execute_tick);
     hash_integral(hash, command.sequence);
     hash_integral(hash, static_cast<std::uint8_t>(command.player));

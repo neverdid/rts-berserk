@@ -14,6 +14,8 @@
 #include "ashen/core/Simulation.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreBootsInUnrealTest, "Ashen.Core.BootsInUnreal",
                                  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -148,8 +150,19 @@ bool FAshenCoreOwnedCommanderTest::RunTest(const FString &Parameters)
                  std::ranges::all_of(First.command_trace(), [](const CommandTraceEntry &Entry)
                  {
                      return Entry.source == CommandSource::CommanderAI && Entry.observation_hash != 0 &&
-                         Entry.accepted && Entry.issued_tick <= Entry.applied_tick;
+                         Entry.ai_decision_id != 0 && Entry.accepted &&
+                         Entry.issued_tick <= Entry.applied_tick;
                  }));
+    TestEqual(TEXT("Each applied opening command has one decision record"),
+              static_cast<int32>(First.ai_decision_trace().size()),
+              static_cast<int32>(First.command_trace().size()));
+    TestTrue(TEXT("Opening decisions retain scores, winners, and accepted results"),
+             std::ranges::all_of(First.ai_decision_trace(), [](const AIDecisionRecord &Record)
+             {
+                 return Record.id != 0 && Record.observation_hash != 0 &&
+                     !Record.candidates.empty() && Record.selected_candidate < Record.candidates.size() &&
+                     Record.command_sequence != 0 && Record.command_status == AICommandStatus::Accepted;
+             }));
 
     constexpr Tick MaximumMatchTicks = 60'000;
     while (First.status() == MatchStatus::Playing && First.tick() < MaximumMatchTicks)
@@ -169,6 +182,21 @@ bool FAshenCoreOwnedCommanderTest::RunTest(const FString &Parameters)
     TestEqual(TEXT("Equivalent bot matches finish on the same tick"),
               static_cast<int64>(First.tick()), static_cast<int64>(Second.tick()));
     TestTrue(TEXT("Core-owned bot matches remain deterministic"), First.state_hash() == Second.state_hash());
+    TestTrue(TEXT("Decision traces remain deterministic"),
+             First.ai_decision_trace() == Second.ai_decision_trace());
+    std::array<bool, 3> ObservedLayers{};
+    for (const auto &Record : First.ai_decision_trace())
+    {
+        ObservedLayers[static_cast<std::size_t>(Record.layer)] = true;
+        const auto CommandEntry = std::ranges::find(First.command_trace(), Record.id,
+                                                    &CommandTraceEntry::ai_decision_id);
+        TestTrue(TEXT("Every completed AI decision links to its authoritative command result"),
+                 Record.command_status != AICommandStatus::Queued &&
+                     CommandEntry != First.command_trace().end() &&
+                     CommandEntry->command.sequence == Record.command_sequence);
+    }
+    TestTrue(TEXT("Full bot play exercises strategic, tactical, and micro layers"),
+             std::ranges::all_of(ObservedLayers, [](const bool Observed) { return Observed; }));
     return true;
 }
 

@@ -30,6 +30,7 @@ struct CheckpointReport {
   core::Tick tick{};
   std::uint64_t state_hash{};
   std::uint64_t command_trace_hash{};
+  std::uint64_t ai_decision_trace_hash{};
 
   auto operator<=>(const CheckpointReport&) const = default;
 };
@@ -75,6 +76,10 @@ struct FixedScenarioReport {
   std::int32_t final_command_hit_points{-1};
   std::uint64_t final_state_hash{};
   std::uint64_t command_trace_hash{};
+  std::uint64_t ai_decision_trace_hash{};
+  std::uint64_t invalid_ai_decisions{};
+  std::uint64_t unresolved_ai_decisions{};
+  std::uint64_t unlinked_ai_commands{};
   std::vector<ScenarioCheckReport> checks{};
 
   auto operator<=>(const FixedScenarioReport&) const = default;
@@ -99,6 +104,10 @@ struct PlayerMatchReport {
   std::uint64_t commands_accepted{};
   std::uint64_t commands_rejected{};
   std::uint64_t commands_without_observation{};
+  std::array<std::uint64_t, 3> ai_decisions_by_layer{};
+  std::uint64_t ai_decisions_accepted{};
+  std::uint64_t ai_decisions_rejected{};
+  std::uint64_t ai_decisions_unresolved{};
   std::vector<CommandErrorCount> rejection_reasons{};
   std::uint64_t commands_per_minute_milli{};
   std::uint64_t retreat_units_evaluated{};
@@ -118,6 +127,10 @@ struct MatchReport {
   std::optional<core::Tick> first_contact_tick{};
   std::uint64_t final_state_hash{};
   std::uint64_t command_trace_hash{};
+  std::uint64_t ai_decision_trace_hash{};
+  std::uint64_t invalid_ai_decisions{};
+  std::uint64_t unresolved_ai_decisions{};
+  std::uint64_t unlinked_ai_commands{};
   std::vector<CheckpointReport> checkpoints{};
   std::array<PlayerMatchReport, 2> players{};
 
@@ -162,7 +175,7 @@ struct SuiteOptions {
 };
 
 struct SuiteReport {
-  std::uint32_t schema_version{1};
+  std::uint32_t schema_version{2};
   SuiteOptions options{};
   std::vector<MatchReport> matches{};
   std::vector<FixedScenarioReport> fixed_scenarios{};
@@ -187,6 +200,8 @@ struct SuiteReport {
 [[nodiscard]] SuiteReport run_suite(const SuiteOptions& options = {});
 [[nodiscard]] std::uint64_t command_trace_hash(
     const std::vector<core::CommandTraceEntry>& trace) noexcept;
+[[nodiscard]] std::uint64_t ai_decision_trace_hash(
+    const std::vector<core::AIDecisionRecord>& trace) noexcept;
 [[nodiscard]] std::string to_json(const SuiteReport& report);
 
 }  // namespace ashen::benchmark
