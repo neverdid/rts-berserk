@@ -262,6 +262,8 @@ struct ControlPoint {
 struct NavigationObstacle {
   Vec2 minimum{};
   Vec2 maximum{};
+
+  auto operator<=>(const NavigationObstacle&) const = default;
 };
 
 struct SimulationConfig {

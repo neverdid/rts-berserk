@@ -4,6 +4,7 @@ set(ASHEN_CORE_MODULE_DIR
 
 add_library(ashen_core STATIC
   ${ASHEN_CORE_MODULE_DIR}/Private/AIDecision.cpp
+  ${ASHEN_CORE_MODULE_DIR}/Private/AIInfluenceMap.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/AIMicroLayer.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/AIPlanning.cpp
   ${ASHEN_CORE_MODULE_DIR}/Private/AIStrategicLayer.cpp
@@ -54,6 +55,10 @@ if(ASHEN_BUILD_TESTS AND BUILD_TESTING)
   target_link_libraries(ashen_commander_ai_tests PRIVATE ashen_core)
   add_test(NAME ashen_commander_ai_tests COMMAND ashen_commander_ai_tests)
 
+  add_executable(ashen_influence_map_tests tests/InfluenceMapTests.cpp)
+  target_link_libraries(ashen_influence_map_tests PRIVATE ashen_core)
+  add_test(NAME ashen_influence_map_tests COMMAND ashen_influence_map_tests)
+
   add_executable(ashen_self_play_tests tests/SelfPlayTests.cpp)
   target_link_libraries(ashen_self_play_tests PRIVATE ashen_benchmarks)
   add_test(NAME ashen_self_play_tests COMMAND ashen_self_play_tests)
@@ -74,6 +79,7 @@ if(ASHEN_BUILD_TESTS AND BUILD_TESTING)
     set_tests_properties(
       ashen_core_tests
       ashen_commander_ai_tests
+      ashen_influence_map_tests
       ashen_self_play_tests
       ashen_parity_catalog
       ashen_self_play_fixed_suite

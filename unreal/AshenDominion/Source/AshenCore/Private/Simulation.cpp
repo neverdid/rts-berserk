@@ -743,11 +743,23 @@ CommandResult Simulation::apply_retreat(const Command& command) {
     return validation;
   }
   const auto* command_structure = nearest_command(command.player, find_entity(command.entities.front())->position);
-  if (command_structure == nullptr) {
+  if (command_structure == nullptr && command.target == Vec2{}) {
     return failure(CommandError::InvalidTarget, "No retreat route is available.");
   }
   const auto ids = sorted_unique_ids(command.entities);
-  const auto targets = formation_targets(ids, command_structure->position);
+  auto destination = command.target;
+  if (destination == Vec2{}) {
+    destination = command_structure->position;
+  } else {
+    auto maximum_radius = 1;
+    for (const auto id : ids) {
+      if (const auto* entity = find_entity(id)) {
+        maximum_radius = std::max(maximum_radius, entity->radius);
+      }
+    }
+    destination = nearest_navigable(destination, maximum_radius);
+  }
+  const auto targets = formation_targets(ids, destination);
   for (std::size_t index = 0; index < ids.size(); ++index) {
     if (auto* entity = find_entity_mutable(ids[index])) {
       entity->resolve = std::min(100, entity->resolve + 8);
@@ -1748,6 +1760,8 @@ PlayerObservation Simulation::observe(const PlayerId observer) const {
                            player(observer),
                            ruin_tide_,
                            config_.map_size,
+                           config_.navigation_cell_size,
+                           config_.navigation_obstacles,
                            visibility(observer),
                            std::move(owned_entities),
                            enemy_memory_[observer_index],
@@ -1968,7 +1982,15 @@ void Simulation::refresh_observation_memory() {
       }
     }
     std::erase_if(enemy_memory_[index], [this, observer](const ObservedEnemy& enemy) {
-      return !enemy.currently_visible && is_position_visible_to(enemy.position, observer, enemy.radius);
+      if (enemy.currently_visible) {
+        return false;
+      }
+      if (is_position_visible_to(enemy.position, observer, enemy.radius)) {
+        return true;
+      }
+      return enemy.kind == EntityKind::Unit &&
+             tick_ >= enemy.last_observed_tick &&
+             tick_ - enemy.last_observed_tick >= kMobileObservationMemoryTicks;
     });
     std::ranges::sort(enemy_memory_[index], {}, [](const ObservedEnemy& enemy) { return enemy.id.value; });
   }

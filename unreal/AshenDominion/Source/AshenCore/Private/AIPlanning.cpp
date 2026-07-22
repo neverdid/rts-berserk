@@ -79,11 +79,22 @@ CandidateBuilder& CandidateBuilder::research(const ResearchId research_value) {
   return *this;
 }
 
+CandidateBuilder& CandidateBuilder::influence(const AIInfluenceMap& map,
+                                              const Vec2 position_value) {
+  value_.candidate.influence_map_hash = map.hash();
+  value_.candidate.influence_sample = map.sample_at(position_value);
+  return *this;
+}
+
 ScoredCommand CandidateBuilder::finish() && { return std::move(value_); }
 
-PlanningContext::PlanningContext(const PlayerObservation& observation_value)
+PlanningContext::PlanningContext(const PlayerObservation& observation_value,
+                                 const bool build_tactical_map)
     : observation(observation_value),
       strategy(strategy_variant(observation_value.match_seed(), observation_value.player())) {
+  if (build_tactical_map) {
+    tactical_map_.emplace(observation_value);
+  }
   for (const auto& entity : observation.owned_entities()) {
     if (!entity.alive() || entity.under_construction) {
       continue;
@@ -124,6 +135,15 @@ PlanningContext::PlanningContext(const PlayerObservation& observation_value)
       visible_enemy_power += enemy_power(enemy, observation.opponent_faction());
     }
   }
+  attrition_commitment = observation.tick() >= kAttritionCommitmentTick &&
+                         !army.empty() && ready_army.empty();
+  const auto visible_combat_enemy =
+      std::ranges::any_of(visible_enemies, [](const ObservedEnemy* enemy) {
+        return is_army_unit(enemy->type);
+      });
+  search_commitment = attrition_commitment ||
+                      (observation.tick() >= kLateSearchCommitmentTick &&
+                       !army.empty() && !visible_combat_enemy);
 }
 
 const Entity* PlanningContext::owned(const EntityId id) const noexcept {

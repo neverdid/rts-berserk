@@ -122,6 +122,18 @@ std::string_view to_string(const AIUtilityReason reason) noexcept {
       return "ranged_line_threatened";
     case AIUtilityReason::FormationSpread:
       return "formation_spread";
+    case AIUtilityReason::FlankSafety:
+      return "flank_safety";
+    case AIUtilityReason::DangerAvoidance:
+      return "danger_avoidance";
+    case AIUtilityReason::FriendlySupport:
+      return "friendly_support";
+    case AIUtilityReason::TravelEfficiency:
+      return "travel_efficiency";
+    case AIUtilityReason::TerrorAvoidance:
+      return "terror_avoidance";
+    case AIUtilityReason::UncertaintyReduction:
+      return "uncertainty_reduction";
   }
   return "unknown";
 }

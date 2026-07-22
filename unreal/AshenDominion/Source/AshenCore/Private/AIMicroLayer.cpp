@@ -37,7 +37,7 @@ namespace {
 
 void add_critical_retreat_candidate(const PlanningContext& context,
                                     std::vector<ScoredCommand>& candidates) {
-  if (context.command_building == nullptr) {
+  if (context.command_building == nullptr || context.search_commitment) {
     return;
   }
   std::vector<const Entity*> critical;
@@ -259,6 +259,15 @@ void add_formation_recovery_candidate(const PlanningContext& context,
 }  // namespace
 
 std::optional<AIPlannedDecision> evaluate_micro_layer(const PlanningContext& context) {
+  const auto decisive_structure_assault =
+      context.search_commitment &&
+      std::ranges::any_of(context.visible_enemies, [](const ObservedEnemy* enemy) {
+        return enemy->type == EntityType::Command;
+      });
+  if (decisive_structure_assault) {
+    return std::nullopt;
+  }
+
   std::vector<ScoredCommand> candidates;
   add_critical_retreat_candidate(context, candidates);
   add_kite_candidates(context, candidates);

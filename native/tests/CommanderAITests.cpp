@@ -39,6 +39,14 @@ void run_test(const std::string_view name, Test&& test) {
   return Simulation{config};
 }
 
+[[nodiscard]] SimulationConfig open_config() {
+  SimulationConfig config{};
+  config.seed_starting_forces = false;
+  config.map_size = world(1'600, 800);
+  config.navigation_obstacles.clear();
+  return config;
+}
+
 void hold(Simulation& simulation, const PlayerId player,
           const std::initializer_list<EntityId> entities) {
   CHECK(simulation.execute_now(
@@ -68,6 +76,11 @@ void hold(Simulation& simulation, const PlayerId player,
       total += component.score;
     }
     if (candidate.components.empty() || total != candidate.total_score) {
+      return false;
+    }
+    if (decision.layer == AIDecisionLayer::Tactical &&
+        (candidate.influence_map_hash == 0 ||
+         !candidate.influence_sample.has_value())) {
       return false;
     }
   }
@@ -152,7 +165,179 @@ void tactical_layer_retreats_from_visible_superior_force() {
   CHECK(tactical != nullptr && tactical->selected_action == AIAction::Retreat);
   CHECK(tactical != nullptr && tactical->winning_reason == AIUtilityReason::Outnumbered);
   CHECK(tactical != nullptr && tactical->command.type == CommandType::Retreat);
+  CHECK(tactical != nullptr && tactical->command.target != Vec2{});
   CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void tactical_layer_flanks_away_from_a_defended_side() {
+  auto simulation = sandbox();
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(160, 400)));
+  const auto first = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(360, 370));
+  const auto second = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(360, 430));
+  const auto ranged = simulation.spawn_entity(
+      PlayerId::One, EntityType::Skirmisher, world(390, 400));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'080, 400)));
+  const auto contact = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(590, 400));
+  const auto turret = simulation.spawn_entity(PlayerId::Two, EntityType::Turret,
+                                              world(570, 245));
+  hold(simulation, PlayerId::One, {first, second, ranged});
+  hold(simulation, PlayerId::Two, {contact});
+  simulation.run(30);
+
+  const auto observation = simulation.observe(PlayerId::One);
+  CHECK(std::ranges::any_of(
+      observation.known_enemies(), [turret](const ObservedEnemy& enemy) {
+        return enemy.id == turret && enemy.currently_visible;
+      }));
+  const AIInfluenceMap influence{observation};
+  const auto plan = CommanderAI{PlayerId::One}.plan(observation);
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr);
+  CHECK(tactical != nullptr &&
+        tactical->selected_action == AIAction::EngageForce);
+  CHECK(tactical != nullptr &&
+        tactical->command.type == CommandType::AttackMove);
+  CHECK(tactical != nullptr && tactical->command.target.y > world(400, 0).x);
+  CHECK(tactical != nullptr &&
+        influence.cell_at(tactical->command.target).static_danger <
+            influence.cell_at(world(570, 300)).static_danger);
+  CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void tactical_layer_avoids_remembered_static_danger_on_objective_approach() {
+  auto config = open_config();
+  config.starting_ore = {0, 0};
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(160, 400)));
+  const auto first = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(620, 360));
+  const auto second = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(620, 400));
+  const auto third = simulation.spawn_entity(
+      PlayerId::One, EntityType::Skirmisher, world(620, 440));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'520, 400)));
+  const auto turret = simulation.spawn_entity(PlayerId::Two, EntityType::Turret,
+                                              world(850, 400));
+  static_cast<void>(simulation.add_control_point(world(1'300, 400)));
+  simulation.step();
+  CHECK(std::ranges::any_of(simulation.observe(PlayerId::One).known_enemies(),
+                            [turret](const ObservedEnemy& enemy) {
+                              return enemy.id == turret &&
+                                     enemy.currently_visible;
+                            }));
+  CHECK(simulation
+            .execute_now(Command{.player = PlayerId::One,
+                                 .type = CommandType::Move,
+                                 .entities = {first, second, third},
+                                 .target = world(360, 400)})
+            .ok);
+  while (simulation.tick() < 150) {
+    simulation.step();
+  }
+
+  const auto observation = simulation.observe(PlayerId::One);
+  const auto remembered = std::ranges::find(observation.known_enemies(), turret,
+                                            &ObservedEnemy::id);
+  CHECK(remembered != observation.known_enemies().end());
+  CHECK(remembered != observation.known_enemies().end() &&
+        !remembered->currently_visible);
+  const AIInfluenceMap influence{observation};
+  const auto plan = CommanderAI{PlayerId::One}.plan(observation);
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr);
+  CHECK(tactical != nullptr &&
+        tactical->selected_action == AIAction::CaptureObjective);
+  CHECK(tactical != nullptr &&
+        influence.cell_at(tactical->command.target).static_danger <
+            influence.cell_at(world(850, 400)).static_danger);
+  CHECK(tactical != nullptr &&
+        std::abs(tactical->command.target.y - world(400, 0).x) >=
+            kAIInfluenceCellSize / 2);
+  CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void tactical_layer_stages_reinforcements_on_the_safer_side() {
+  auto config = open_config();
+  config.starting_ore = {0, 0};
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(160, 400)));
+  const auto active_one = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(330, 370));
+  const auto active_two = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(330, 430));
+  const auto reinforcement = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(250, 400));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'520, 400)));
+  const auto turret = simulation.spawn_entity(PlayerId::Two, EntityType::Turret,
+                                              world(540, 245));
+  hold(simulation, PlayerId::One, {active_one, active_two, reinforcement});
+  simulation.run(30);
+  CHECK(simulation
+            .execute_now(Command{.player = PlayerId::One,
+                                 .type = CommandType::AttackMove,
+                                 .entities = {active_one, active_two},
+                                 .target = world(700, 400)})
+            .ok);
+
+  const auto observation = simulation.observe(PlayerId::One);
+  CHECK(std::ranges::any_of(
+      observation.known_enemies(), [turret](const ObservedEnemy& enemy) {
+        return enemy.id == turret && enemy.currently_visible;
+      }));
+  const auto plan = CommanderAI{PlayerId::One}.plan(observation);
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr);
+  CHECK(tactical != nullptr &&
+        tactical->selected_action == AIAction::ReinforceFront);
+  CHECK(tactical != nullptr &&
+        tactical->command.entities == std::vector<EntityId>{reinforcement});
+  CHECK(tactical != nullptr && tactical->command.target.y > world(400, 0).x);
+  CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void retreat_command_honors_the_influence_selected_shelter() {
+  auto simulation = sandbox();
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(180, 400)));
+  const auto defender = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(380, 400));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'020, 400)));
+  const auto first = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(540, 350));
+  const auto second = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(540, 400));
+  const auto third = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(540, 450));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Turret,
+                                            world(330, 235)));
+  hold(simulation, PlayerId::One, {defender});
+  hold(simulation, PlayerId::Two, {first, second, third});
+  simulation.run(30);
+
+  const auto plan =
+      CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr && tactical->selected_action == AIAction::Retreat);
+  CHECK(tactical != nullptr && tactical->command.target != Vec2{});
+  if (tactical == nullptr) {
+    return;
+  }
+  const auto destination = tactical->command.target;
+  CHECK(simulation.execute_now(tactical->command).ok);
+  const auto* unit = simulation.find_entity(defender);
+  CHECK(unit != nullptr && unit->stance == UnitStance::Defensive);
+  CHECK(unit != nullptr && unit->order.type == OrderType::Move);
+  CHECK(unit != nullptr && unit->order.target == destination);
 }
 
 void micro_layer_focuses_the_high_value_visible_target() {
@@ -254,6 +439,102 @@ void sheltered_wounded_units_do_not_repeat_retreat_orders() {
   CHECK(micro == nullptr || micro->selected_action != AIAction::Retreat);
 }
 
+void match_age_does_not_force_a_healthy_army_into_a_bad_fight() {
+  auto config = open_config();
+  config.starting_ore = {0, 0};
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(180, 400)));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'420, 400)));
+  simulation.run(kLateSearchCommitmentTick);
+
+  const auto defender = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(430, 400));
+  const auto first = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(610, 340));
+  const auto second = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(610, 380));
+  const auto third = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(610, 420));
+  const auto fourth = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(610, 460));
+  hold(simulation, PlayerId::One, {defender});
+  hold(simulation, PlayerId::Two, {first, second, third, fourth});
+  do {
+    simulation.step();
+  } while (!ai_decision_due(AIDecisionLayer::Tactical, simulation.tick()));
+
+  const auto plan =
+      CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr);
+  CHECK(tactical != nullptr && tactical->selected_action == AIAction::Retreat);
+  CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void prolonged_no_contact_commits_a_healthy_force_to_search() {
+  auto config = open_config();
+  config.starting_ore = {0, 0};
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(180, 400)));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                            world(1'420, 400)));
+  const auto searcher = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(430, 400));
+  hold(simulation, PlayerId::One, {searcher});
+  simulation.run(kLateSearchCommitmentTick);
+  while (!ai_decision_due(AIDecisionLayer::Tactical, simulation.tick())) {
+    simulation.step();
+  }
+
+  const auto plan =
+      CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+  const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+  CHECK(tactical != nullptr);
+  CHECK(tactical != nullptr &&
+        tactical->selected_action == AIAction::SearchEnemyCommand);
+  CHECK(tactical != nullptr &&
+        tactical->command.type == CommandType::AttackMove);
+  CHECK(tactical != nullptr && tactical->command.target == world(1'420, 400));
+  CHECK(tactical != nullptr && valid_score_trace(*tactical));
+}
+
+void late_base_assault_is_not_retargeted_to_workers() {
+  auto config = open_config();
+  config.starting_ore = {0, 0};
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                            world(180, 400)));
+  const auto enemy_command = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Command, world(1'420, 400));
+  simulation.run(kLateSearchCommitmentTick);
+
+  const auto attacker = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(1'190, 400));
+  static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Worker,
+                                            world(1'260, 460)));
+  simulation.step();
+  CHECK(simulation
+            .execute_now(Command{.player = PlayerId::One,
+                                 .type = CommandType::Attack,
+                                 .entities = {attacker},
+                                 .target_entity = enemy_command})
+            .ok);
+  while (!ai_decision_due(AIDecisionLayer::Micro, simulation.tick())) {
+    simulation.step();
+  }
+
+  const auto plan =
+      CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+  CHECK(decision_for(plan, AIDecisionLayer::Micro) == nullptr);
+  const auto* committed = simulation.find_entity(attacker);
+  CHECK(committed != nullptr && committed->order.type == OrderType::Attack);
+  CHECK(committed != nullptr &&
+        committed->order.target_entity == enemy_command);
+}
+
 }  // namespace
 
 int main() {
@@ -263,12 +544,27 @@ int main() {
            strategic_layer_scores_the_opening_and_worker_allocation);
   run_test("tactical layer retreats from visible superior force",
            tactical_layer_retreats_from_visible_superior_force);
+  run_test("tactical layer flanks away from a defended side",
+           tactical_layer_flanks_away_from_a_defended_side);
+  run_test(
+      "tactical layer avoids remembered static danger on objective approach",
+      tactical_layer_avoids_remembered_static_danger_on_objective_approach);
+  run_test("tactical layer stages reinforcements on the safer side",
+           tactical_layer_stages_reinforcements_on_the_safer_side);
+  run_test("retreat command honors the influence-selected shelter",
+           retreat_command_honors_the_influence_selected_shelter);
   run_test("micro layer focuses the high-value visible target",
            micro_layer_focuses_the_high_value_visible_target);
   run_test("micro layer kites while a ranged weapon cools",
            micro_layer_kites_while_a_ranged_weapon_cools);
   run_test("sheltered wounded units do not repeat retreat orders",
            sheltered_wounded_units_do_not_repeat_retreat_orders);
+  run_test("match age does not force a healthy army into a bad fight",
+           match_age_does_not_force_a_healthy_army_into_a_bad_fight);
+  run_test("prolonged no-contact commits a healthy force to search",
+           prolonged_no_contact_commits_a_healthy_force_to_search);
+  run_test("late base assault is not retargeted to workers",
+           late_base_assault_is_not_retargeted_to_workers);
 
   if (failures != 0) {
     std::cerr << failures << " commander AI check(s) failed.\n";
