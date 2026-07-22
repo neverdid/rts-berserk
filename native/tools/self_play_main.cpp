@@ -19,7 +19,7 @@ void print_usage() {
                "  --output PATH          Write the stable JSON report to PATH.\n"
                "  --seeds COUNT          Number of consecutive seeds to run (default: 2).\n"
                "  --first-seed SEED      First match seed (default: 1).\n"
-               "  --max-ticks TICKS      Per-match tick budget (default: 12000).\n"
+               "  --max-ticks TICKS      Per-match tick budget (default: 16000).\n"
                "  --checkpoint TICKS     State checkpoint interval (default: 500).\n"
                "  --no-verify            Skip the duplicate determinism replay.\n"
                "  --help                 Show this message.\n";

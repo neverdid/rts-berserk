@@ -3,6 +3,7 @@
 #include "ashen/core/AIDecision.hpp"
 #include "ashen/core/PlayerObservation.hpp"
 
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -24,6 +25,7 @@ class CandidateBuilder final {
   CandidateBuilder& position(Vec2 position);
   CandidateBuilder& entity_type(EntityType type);
   CandidateBuilder& research(ResearchId research);
+  CandidateBuilder& influence(const AIInfluenceMap& map, Vec2 position);
   [[nodiscard]] ScoredCommand finish() &&;
 
  private:
@@ -31,9 +33,14 @@ class CandidateBuilder final {
 };
 
 struct PlanningContext {
-  explicit PlanningContext(const PlayerObservation& observation_value);
+  explicit PlanningContext(const PlayerObservation& observation_value,
+                           bool build_tactical_map);
 
   [[nodiscard]] const Entity* owned(EntityId id) const noexcept;
+  [[nodiscard]] const AIInfluenceMap& tactical_map() const noexcept {
+    assert(tactical_map_.has_value());
+    return *tactical_map_;
+  }
 
   const PlayerObservation& observation;
   const Entity* command_building{};
@@ -47,6 +54,11 @@ struct PlanningContext {
   std::int32_t friendly_power{};
   std::int32_t ready_power{};
   std::int32_t visible_enemy_power{};
+  bool attrition_commitment{};
+  bool search_commitment{};
+
+ private:
+  std::optional<AIInfluenceMap> tactical_map_{};
 };
 
 [[nodiscard]] bool is_army_unit(EntityType type) noexcept;

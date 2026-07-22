@@ -13,7 +13,8 @@ The repository now has two active production layers and one archived prototype:
   camera, edge scrolling and zoom, click and drag-box selection, contextual move/attack/gather commands,
   attack-move, patrol, retreat, stances, queued orders, control groups, worker construction, research,
   faction powers, resolve, authoritative fog of war, capture relics, production and rally queues, a
-  clickable command card, a deployment menu, tactical minimap, and a core-owned, fog-constrained skirmish
+  clickable command card, a deployment menu, tactical minimap, and a core-owned, fog-constrained,
+  influence-aware skirmish
   commander that can control either player. It also has two distinct multi-part faction silhouettes, and a procedural dark-medieval
   battlefield with castles, forests, roads, bridges, a contested island, and shader-driven river water.
 - `unreal/AshenDominion/Source/AshenCore/` is the portable C++20 authoritative simulation. CMake and
@@ -142,10 +143,10 @@ ctest --preset dev -C Debug
 
 The generated `ashen_headless` executable advances a match without graphics and prints its final tick,
 economy, result, and deterministic state hash. `ashen_self_play` runs the faction-and-spawn matrix plus
-economy-recovery, blocked-opening, and early-rush fixtures for every faction. It duplicates each seeded run to
-detect nondeterminism and writes a stable machine-readable report. The C++ commander has independent
-strategic, tactical, and micro utility layers; the report separately hashes every candidate score, selected
-reason, observation, command, and authoritative result:
+economy-recovery, blocked-opening, early-rush, flank, danger-avoidance, reinforcement, and retreat fixtures for
+every faction. It duplicates each seeded run to detect nondeterminism and writes a stable machine-readable
+report. The C++ commander has independent strategic, tactical, and micro utility layers; the report separately
+hashes every candidate score, influence sample, selected reason, observation, command, and authoritative result:
 
 ```powershell
 .\build\native\native\Debug\ashen_self_play.exe `

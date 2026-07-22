@@ -72,8 +72,9 @@ Exit gate:
 Status: implemented in the native C++ benchmark layer.
 
 - Six ordered full-match scenarios cover every non-mirror faction pairing with every faction on both spawns.
-- Nine targeted fixtures per seed exercise economy-deficit recovery, blocked-opening recovery, and early-rush
-  survival for every faction. Each fixture exposes named checks and final diagnostic state in the report.
+- Twenty-one targeted fixtures per seed exercise economy-deficit recovery, blocked-opening recovery,
+  early-rush survival, flank choice, static-danger avoidance, reinforcement staging, and retreat destinations
+  for every faction. Each fixture exposes named checks and final diagnostic state in the report.
 - Match seeds are part of simulation state and the sanitized observation. They select deterministic commander
   variants without exposing hidden state or granting resources.
 - Every applied command records source, issue and application ticks, the exact observation hash, complete
@@ -90,8 +91,9 @@ Status: implemented in the native C++ benchmark layer.
 Exit gate:
 
 - Passed: the same seed and build produce the same telemetry, command trace, checkpoints, outcome, and state
-  hash; the default two-seed suite completes 12 full matches and 18 targeted fixtures with all 96 behavior
-  checks passing, including the Step 3 decision-ledger audits.
+  hash; the default two-seed suite completes 12 full matches and 42 targeted fixtures with all 192 behavior
+  checks passing inside a bounded 16,000-tick match horizon. MSVC and GCC produce byte-identical schema-v3
+  reports.
 
 ### Step 3: Strategic, tactical, and micro layers
 
@@ -129,14 +131,36 @@ Exit gate:
 
 ### Step 4: Influence maps
 
-- Build deterministic grids for friendly power, observed enemy power, static danger, objective value,
-  travel cost, terror pressure, and uncertainty.
-- Unseen mobile enemies contribute only decaying last-known influence, never live positions.
-- Tactical movement uses influence plus navigation, not influence as a replacement for pathfinding.
+Status: implemented in `AshenCore`.
+
+- `AIInfluenceMap` builds fixed-point cells for friendly power, observed enemy power, static danger,
+  objective value, travel cost, terror pressure, and uncertainty. Its dimensions, cells, reachability, and
+  hash are deterministic.
+- `PlayerObservation` exposes immutable navigation cell size and obstacle geometry because authored static
+  terrain is public map knowledge. The AI still receives no `Simulation` reference or live hidden entity.
+- Visible enemies project power, terror, and turret danger. Mobile sightings retain only their last observed
+  snapshot, spread and decay for 2,400 ticks, and then expire; visibly clearing the last-known location removes
+  the stale contact immediately. Structures remain remembered until their known location is visibly empty.
+- Hidden, explored, and visible terrain carry distinct uncertainty. Public objective ownership changes value,
+  friendly wards reduce local terror, and a deterministic grid search records travel cost from the command
+  structure without replacing unit navigation.
+- Engagement, objective, search, scouting, reinforcement, and retreat destinations score influence samples.
+  Existing authoritative A* still creates every route after the AI selects a legal waypoint.
+- Arrival commits to the real objective instead of orbiting a neighboring cell. After four minutes, an army
+  with no combat-ready survivors enters a deterministic attrition commitment: only that exhausted force stops
+  retreat loops and begins a final sweep through ordinary combat and command validation. Healthy armies retain
+  normal threat assessment, so match age alone never forces a reckless visible engagement. After six minutes
+  without visible combat opposition, survivors consolidate and advance directly toward the last-known or
+  inferred enemy command. Seeing an enemy army immediately restores ordinary retreat and unfavorable-engagement
+  checks; structures alone cannot restart a permanent wounded-unit retreat loop.
+- Every tactical candidate records the influence-map hash and exact sampled cell. The self-play decision hash
+  and audit include every channel, and Unreal consumes the same exported C++ type.
 
 Exit gate:
 
-- Fixed tactical scenarios verify flank choice, danger avoidance, reinforcement, and retreat destinations.
+- Passed: faction-balanced fixed scenarios verify flank choice, danger avoidance, reinforcement, and applied
+  retreat destinations; adversarial tests prove different never-seen live positions cannot change an
+  observation or influence-map hash; Unreal's `Ashen.Core.InfluenceTactics` automation test passes.
 
 ### Step 5: Faction, resolve, and dread behavior
 
@@ -180,5 +204,5 @@ visibility, combat execution, and the deterministic simulation never depend on a
 
 Every AI decision record must contain the simulation tick, observer player, observation hash, layer,
 candidate actions, utility components, selected action, command sequence, application status, and rejected
-command reason. Step 4 will add the relevant influence cells. Shipping builds may discard these records, but
-tests and development builds must be able to reproduce them.
+command reason. Tactical candidates also retain the influence-map hash and relevant sampled cell. Shipping
+builds may discard these records, but tests and development builds must be able to reproduce them.

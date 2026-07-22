@@ -13,19 +13,26 @@ CommanderPlan CommanderAI::plan(const PlayerObservation& observation) const {
     return result;
   }
 
-  const ai::PlanningContext context{observation};
-  if (ai_decision_due(AIDecisionLayer::Strategic, observation.tick())) {
+  const auto strategic_due = ai_decision_due(AIDecisionLayer::Strategic, observation.tick());
+  const auto tactical_due = ai_decision_due(AIDecisionLayer::Tactical, observation.tick());
+  const auto micro_due = ai_decision_due(AIDecisionLayer::Micro, observation.tick());
+  if (!strategic_due && !tactical_due && !micro_due) {
+    return result;
+  }
+
+  const ai::PlanningContext context{observation, tactical_due};
+  if (strategic_due) {
     auto strategic = ai::evaluate_strategic_layer(context);
     for (auto& decision : strategic) {
       result.decisions.push_back(std::move(decision));
     }
   }
-  if (ai_decision_due(AIDecisionLayer::Tactical, observation.tick())) {
+  if (tactical_due) {
     if (auto tactical = ai::evaluate_tactical_layer(context)) {
       result.decisions.push_back(std::move(*tactical));
     }
   }
-  if (ai_decision_due(AIDecisionLayer::Micro, observation.tick())) {
+  if (micro_due) {
     if (auto micro = ai::evaluate_micro_layer(context)) {
       result.decisions.push_back(std::move(*micro));
     }

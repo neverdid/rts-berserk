@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ashen/core/AIInfluenceMap.hpp"
 #include "ashen/core/Types.hpp"
 
 #include <compare>
@@ -67,6 +68,12 @@ enum class AIUtilityReason : std::uint8_t {
   HighThreatTarget,
   RangedLineThreatened,
   FormationSpread,
+  FlankSafety,
+  DangerAvoidance,
+  FriendlySupport,
+  TravelEfficiency,
+  TerrorAvoidance,
+  UncertaintyReduction,
 };
 
 enum class AICommandStatus : std::uint8_t { Queued, Accepted, Rejected };
@@ -75,6 +82,8 @@ inline constexpr Tick kStrategicDecisionCadence = 80;
 inline constexpr Tick kTacticalDecisionCadence = 120;
 inline constexpr Tick kTacticalDecisionPhase = 30;
 inline constexpr Tick kMicroDecisionCadence = 12;
+inline constexpr Tick kAttritionCommitmentTick = 4'800;
+inline constexpr Tick kLateSearchCommitmentTick = 7'200;
 
 [[nodiscard]] constexpr Tick ai_decision_cadence(const AIDecisionLayer layer) noexcept {
   switch (layer) {
@@ -115,6 +124,8 @@ struct AICandidateScore {
   Vec2 target_position{};
   std::optional<EntityType> entity_type{};
   std::optional<ResearchId> research{};
+  std::uint64_t influence_map_hash{};
+  std::optional<AIInfluenceSample> influence_sample{};
   std::int32_t total_score{};
   std::vector<AIUtilityComponent> components{};
 

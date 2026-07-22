@@ -10,7 +10,9 @@
 #include "Misc/AutomationTest.h"
 #include "ProceduralMeshComponent.h"
 #include "UObject/UObjectGlobals.h"
+#include "ashen/core/AIInfluenceMap.hpp"
 #include "ashen/core/Catalog.hpp"
+#include "ashen/core/CommanderAI.hpp"
 #include "ashen/core/Simulation.hpp"
 
 #include <algorithm>
@@ -118,6 +120,63 @@ bool FAshenCoreAuthoritativeFogTest::RunTest(const FString &Parameters)
               Match.is_entity_visible_to(*Match.find_entity(Enemy), PlayerId::One));
     TestEqual(TEXT("Pursuit ends when contact is lost"), static_cast<uint8>(Match.find_entity(Attacker)->order.type),
               static_cast<uint8>(OrderType::Idle));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreInfluenceTacticsTest,
+                                 "Ashen.Core.InfluenceTactics",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreInfluenceTacticsTest::RunTest(const FString &Parameters)
+{
+    static_cast<void>(Parameters);
+    using namespace ashen::core;
+
+    SimulationConfig Config{};
+    Config.seed_starting_forces = false;
+    Config.starting_ore = {0, 0};
+    Config.map_size = world(1'200, 800);
+    Config.navigation_obstacles = {{world(700, 180), world(820, 620)}};
+    Simulation Match{Config};
+    static_cast<void>(Match.spawn_entity(PlayerId::One, EntityType::Command, world(160, 400)));
+    const EntityId First = Match.spawn_entity(PlayerId::One, EntityType::Vanguard, world(350, 370));
+    const EntityId Second = Match.spawn_entity(PlayerId::One, EntityType::Vanguard, world(350, 430));
+    const EntityId Ranged = Match.spawn_entity(PlayerId::One, EntityType::Skirmisher, world(390, 400));
+    static_cast<void>(Match.spawn_entity(PlayerId::Two, EntityType::Command, world(1'080, 400)));
+    const EntityId Contact = Match.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(590, 400));
+    static_cast<void>(Match.spawn_entity(PlayerId::Two, EntityType::Turret, world(570, 245)));
+    TestTrue(TEXT("Friendly formation can hold for a deterministic tactical snapshot"),
+             Match.execute_now(Command{.player = PlayerId::One,
+                                       .type = CommandType::Hold,
+                                       .entities = {First, Second, Ranged}})
+                 .ok);
+    TestTrue(TEXT("Enemy contact can hold for a deterministic tactical snapshot"),
+             Match.execute_now(Command{.player = PlayerId::Two,
+                                       .type = CommandType::Hold,
+                                       .entities = {Contact}})
+                 .ok);
+    Match.run(30);
+
+    const PlayerObservation Observation = Match.observe(PlayerId::One);
+    const AIInfluenceMap FirstMap{Observation};
+    const AIInfluenceMap ReplayMap{Observation};
+    TestTrue(TEXT("Equivalent Unreal-side influence maps hash identically"),
+             FirstMap.hash() != 0 && FirstMap.hash() == ReplayMap.hash());
+    TestTrue(TEXT("Known map geometry remains unreachable in the tactical field"),
+             !FirstMap.cell_at(world(760, 400)).navigable &&
+                 FirstMap.cell_at(world(760, 400)).travel_cost == kAIUnreachableTravelCost);
+
+    const CommanderPlan Plan = CommanderAI{PlayerId::One}.plan(Observation);
+    const auto Tactical =
+        std::ranges::find(Plan.decisions, AIDecisionLayer::Tactical, &AIPlannedDecision::layer);
+    TestTrue(TEXT("The Unreal module produces a tactical decision from the shared C++ planner"),
+             Tactical != Plan.decisions.end());
+    TestTrue(TEXT("Every Unreal-side tactical candidate retains influence evidence"),
+             Tactical != Plan.decisions.end() &&
+                 std::ranges::all_of(Tactical->candidates, [](const AICandidateScore &Candidate)
+                 {
+                     return Candidate.influence_map_hash != 0 && Candidate.influence_sample.has_value();
+                 }));
     return true;
 }
 

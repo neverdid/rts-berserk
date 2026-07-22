@@ -88,10 +88,13 @@ void hash_owned_entity(std::uint64_t& hash, const Entity& entity) noexcept {
 
 }  // namespace
 
-PlayerObservation::PlayerObservation(const Tick tick, const std::uint64_t match_seed, const PlayerId player,
-                                     const FactionId opponent_faction, const MatchStatus status, PlayerState self,
-                                     const std::int32_t ruin_tide,
-                                     const Vec2 map_size, VisibilityGrid explored_map,
+PlayerObservation::PlayerObservation(const Tick tick, const std::uint64_t match_seed,
+                                     const PlayerId player, const FactionId opponent_faction,
+                                     const MatchStatus status, PlayerState self,
+                                     const std::int32_t ruin_tide, const Vec2 map_size,
+                                     const std::int32_t navigation_cell_size,
+                                     std::vector<NavigationObstacle> navigation_obstacles,
+                                     VisibilityGrid explored_map,
                                      std::vector<Entity> owned_entities,
                                      std::vector<ObservedEnemy> known_enemies,
                                      std::vector<ObservedResource> known_resources,
@@ -106,6 +109,8 @@ PlayerObservation::PlayerObservation(const Tick tick, const std::uint64_t match_
       self_(std::move(self)),
       ruin_tide_(ruin_tide),
       map_size_(map_size),
+      navigation_cell_size_(navigation_cell_size),
+      navigation_obstacles_(std::move(navigation_obstacles)),
       explored_map_(std::move(explored_map)),
       owned_entities_(std::move(owned_entities)),
       known_enemies_(std::move(known_enemies)),
@@ -148,6 +153,12 @@ std::uint64_t PlayerObservation::hash() const noexcept {
   }
   hash_integral(hash, ruin_tide_);
   hash_vec(hash, map_size_);
+  hash_integral(hash, navigation_cell_size_);
+  hash_integral(hash, navigation_obstacles_.size());
+  for (const auto& obstacle : navigation_obstacles_) {
+    hash_vec(hash, obstacle.minimum);
+    hash_vec(hash, obstacle.maximum);
+  }
   hash_integral(hash, explored_map_.cell_size());
   hash_integral(hash, explored_map_.columns());
   hash_integral(hash, explored_map_.rows());

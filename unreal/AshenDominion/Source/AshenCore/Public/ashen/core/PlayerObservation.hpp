@@ -9,6 +9,8 @@
 
 namespace ashen::core {
 
+inline constexpr Tick kMobileObservationMemoryTicks = 2'400;
+
 struct ObservedEnemy {
   EntityId id{};
   PlayerId owner{PlayerId::One};
@@ -71,6 +73,12 @@ class ASHENCORE_API PlayerObservation final {
   [[nodiscard]] const PlayerState& self() const noexcept { return self_; }
   [[nodiscard]] std::int32_t ruin_tide() const noexcept { return ruin_tide_; }
   [[nodiscard]] Vec2 map_size() const noexcept { return map_size_; }
+  [[nodiscard]] std::int32_t navigation_cell_size() const noexcept {
+    return navigation_cell_size_;
+  }
+  [[nodiscard]] const std::vector<NavigationObstacle>& navigation_obstacles() const noexcept {
+    return navigation_obstacles_;
+  }
   [[nodiscard]] const VisibilityGrid& explored_map() const noexcept { return explored_map_; }
   [[nodiscard]] const std::vector<Entity>& owned_entities() const noexcept { return owned_entities_; }
   [[nodiscard]] const std::vector<ObservedEnemy>& known_enemies() const noexcept { return known_enemies_; }
@@ -88,8 +96,9 @@ class ASHENCORE_API PlayerObservation final {
   friend class Simulation;
 
   PlayerObservation(Tick tick, std::uint64_t match_seed, PlayerId player, FactionId opponent_faction,
-                    MatchStatus status,
-                    PlayerState self, std::int32_t ruin_tide, Vec2 map_size,
+                    MatchStatus status, PlayerState self, std::int32_t ruin_tide, Vec2 map_size,
+                    std::int32_t navigation_cell_size,
+                    std::vector<NavigationObstacle> navigation_obstacles,
                     VisibilityGrid explored_map, std::vector<Entity> owned_entities,
                     std::vector<ObservedEnemy> known_enemies,
                     std::vector<ObservedResource> known_resources,
@@ -105,6 +114,8 @@ class ASHENCORE_API PlayerObservation final {
   PlayerState self_{};
   std::int32_t ruin_tide_{};
   Vec2 map_size_{};
+  std::int32_t navigation_cell_size_{1};
+  std::vector<NavigationObstacle> navigation_obstacles_{};
   VisibilityGrid explored_map_{};
   std::vector<Entity> owned_entities_{};
   std::vector<ObservedEnemy> known_enemies_{};

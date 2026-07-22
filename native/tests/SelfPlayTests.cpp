@@ -48,7 +48,7 @@ void fixed_cases_cover_every_faction_and_spawn() {
 
 void fixed_behavior_scenarios_cover_every_faction_and_pass() {
   const auto& scenarios = benchmark::standard_fixed_scenarios();
-  CHECK(scenarios.size() == 9);
+  CHECK(scenarios.size() == 21);
   std::array<std::uint32_t, 3> faction_counts{};
   std::set<std::string> names;
   const std::vector<core::CommandTraceEntry> empty_trace;
@@ -65,7 +65,7 @@ void fixed_behavior_scenarios_cover_every_faction_and_pass() {
     CHECK(report.invalid_ai_decisions == 0);
     CHECK(report.unlinked_ai_commands == 0);
   }
-  constexpr std::array<std::uint32_t, 3> expected_counts{3, 3, 3};
+  constexpr std::array<std::uint32_t, 3> expected_counts{7, 7, 7};
   CHECK(names.size() == scenarios.size());
   CHECK(faction_counts == expected_counts);
 }
@@ -122,7 +122,7 @@ void report_json_is_stable_and_invalid_options_fail_closed() {
   const auto first_json = benchmark::to_json(sample);
   const auto second_json = benchmark::to_json(sample);
   CHECK(first_json == second_json);
-  CHECK(first_json.find("\"schema_version\": 2") != std::string::npos);
+  CHECK(first_json.find("\"schema_version\": 3") != std::string::npos);
   CHECK(first_json.find("\"command_trace_hash\"") != std::string::npos);
   CHECK(first_json.find("\"ai_decision_trace_hash\"") != std::string::npos);
   CHECK(first_json.find("\"ai_decisions_by_layer\"") != std::string::npos);

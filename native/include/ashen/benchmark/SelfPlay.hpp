@@ -16,6 +16,10 @@ enum class FixedScenarioId : std::uint8_t {
   EconomyDeficitRecovery,
   BlockedOpeningRecovery,
   EarlyRushSurvival,
+  TacticalFlankChoice,
+  TacticalDangerAvoidance,
+  TacticalReinforcement,
+  TacticalRetreatDestination,
 };
 
 struct BenchmarkCase {
@@ -167,7 +171,7 @@ struct BalanceAlert {
 struct SuiteOptions {
   std::uint32_t seed_count{2};
   std::uint64_t first_seed{1};
-  core::Tick maximum_match_ticks{12'000};
+  core::Tick maximum_match_ticks{16'000};
   core::Tick checkpoint_interval{500};
   bool verify_determinism{true};
 
@@ -175,7 +179,7 @@ struct SuiteOptions {
 };
 
 struct SuiteReport {
-  std::uint32_t schema_version{2};
+  std::uint32_t schema_version{3};
   SuiteOptions options{};
   std::vector<MatchReport> matches{};
   std::vector<FixedScenarioReport> fixed_scenarios{};
@@ -193,7 +197,7 @@ struct SuiteReport {
 [[nodiscard]] const std::vector<BenchmarkCase>& standard_cases();
 [[nodiscard]] const std::vector<FixedScenarioCase>& standard_fixed_scenarios();
 [[nodiscard]] MatchReport run_match(const BenchmarkCase& benchmark_case, std::uint64_t seed,
-                                    core::Tick maximum_ticks = 12'000,
+                                    core::Tick maximum_ticks = 16'000,
                                     core::Tick checkpoint_interval = 500);
 [[nodiscard]] FixedScenarioReport run_fixed_scenario(const FixedScenarioCase& scenario,
                                                      std::uint64_t seed);
