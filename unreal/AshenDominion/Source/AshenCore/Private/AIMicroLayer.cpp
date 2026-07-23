@@ -45,7 +45,8 @@ void add_critical_retreat_candidate(const PlanningContext& context,
   auto lowest_resolve = 100;
   for (const auto* unit : context.army) {
     const auto health = health_basis(*unit);
-    if (health > 3'000 && unit->resolve > 25) {
+    if (health > context.doctrine.critical_retreat_health_basis_points &&
+        unit->resolve > context.doctrine.critical_retreat_resolve) {
       continue;
     }
     const auto shelter_radius = static_cast<std::int64_t>(context.command_building->radius) + 110'000;
@@ -78,11 +79,30 @@ void add_critical_retreat_candidate(const PlanningContext& context,
   retreat.entities = entity_ids(critical);
   auto candidate = CandidateBuilder{AIAction::Retreat, std::move(retreat)};
   candidate.add(AIUtilityReason::Baseline, 2'000);
-  if (lowest_health <= 3'000) {
-    candidate.add(AIUtilityReason::CriticalHealth, 15'000 + (3'000 - lowest_health));
+  if (lowest_health <=
+      context.doctrine.critical_retreat_health_basis_points) {
+    candidate.add(
+        AIUtilityReason::CriticalHealth,
+        apply_ai_weight(
+            15'000 +
+                (context.doctrine.critical_retreat_health_basis_points -
+                 lowest_health),
+            context.doctrine.preservation_weight_basis_points));
   }
-  if (lowest_resolve <= 25) {
-    candidate.add(AIUtilityReason::LowResolve, 13'000 + (25 - lowest_resolve) * 100);
+  if (lowest_resolve <= context.doctrine.critical_retreat_resolve) {
+    candidate.add(
+        AIUtilityReason::LowResolve,
+        apply_ai_weight(
+            13'000 +
+                (context.doctrine.critical_retreat_resolve -
+                 lowest_resolve) *
+                    100,
+            context.doctrine.preservation_weight_basis_points));
+    candidate.add(
+        AIUtilityReason::ResolvePreservation,
+        apply_ai_weight(
+            (100 - lowest_resolve) * 35,
+            context.doctrine.preservation_weight_basis_points));
   }
   candidate.position(context.command_building->position);
   candidates.push_back(std::move(candidate).finish());
@@ -130,9 +150,22 @@ void add_kite_candidates(const PlanningContext& context,
     candidates.push_back(std::move(CandidateBuilder{AIAction::Kite, std::move(kite)}
                                        .add(AIUtilityReason::Baseline, 3'000)
                                        .add(AIUtilityReason::WeaponCoolingDown,
-                                            7'000 + static_cast<std::int32_t>(skirmisher->cooldown_ticks) * 80)
+                                            apply_ai_weight(
+                                                7'000 +
+                                                    static_cast<std::int32_t>(
+                                                        skirmisher
+                                                            ->cooldown_ticks) *
+                                                        80,
+                                                context.doctrine
+                                                    .preservation_weight_basis_points))
                                        .add(AIUtilityReason::MeleePressure,
-                                            4'000 - std::min(3'000, distance_world * 12))
+                                            apply_ai_weight(
+                                                4'000 -
+                                                    std::min(
+                                                        3'000,
+                                                        distance_world * 12),
+                                                context.doctrine
+                                                    .preservation_weight_basis_points))
                                        .target(nearest->id)
                                        .position(target))
                              .finish());
@@ -165,12 +198,27 @@ void add_focus_fire_candidates(const PlanningContext& context,
     focus.entities = entity_ids(context.ready_army);
     focus.target_entity = enemy->id;
     auto candidate = CandidateBuilder{AIAction::FocusFire, std::move(focus)};
+    const auto resolve_vulnerability =
+        std::max(0, 85 - enemy->resolve);
+    const auto dread_opportunity =
+        context.friendly_terror <= 0
+            ? 0
+            : resolve_vulnerability * 90 + definition.ward * 60;
     candidate.add(AIUtilityReason::Baseline, 3'200)
         .add(AIUtilityReason::VulnerableTarget, missing_health / 2)
         .add(AIUtilityReason::HighThreatTarget,
              definition.damage * 100 + definition.cost * 5 +
                  (is_army_unit(enemy->type) ? 2'800 : 0))
         .add(AIUtilityReason::CounterArmored, bonus_attackers * 500)
+        .add(AIUtilityReason::DreadExploitation,
+             apply_ai_weight(
+                 dread_opportunity,
+                 context.doctrine.dread_exploitation_weight_basis_points))
+        .add(AIUtilityReason::ResolvePreservation,
+             apply_ai_weight(
+                 definition.terror * 120,
+                 context.doctrine
+                     .terror_resistance_weight_basis_points))
         .target(enemy->id)
         .position(enemy->position)
         .entity_type(enemy->type);
@@ -216,7 +264,18 @@ void add_screen_candidate(const PlanningContext& context,
   candidates.push_back(std::move(CandidateBuilder{AIAction::ScreenRanged, std::move(screen)}
                                      .add(AIUtilityReason::Baseline, 3'500)
                                      .add(AIUtilityReason::RangedLineThreatened,
-                                          8'000 + static_cast<std::int32_t>(75'000 - distance) / 20)
+                                          apply_ai_weight(
+                                              8'000 +
+                                                  static_cast<std::int32_t>(
+                                                      75'000 - distance) /
+                                                      20,
+                                              context.doctrine
+                                                  .cohesion_weight_basis_points))
+                                     .add(AIUtilityReason::FormationDoctrine,
+                                          apply_ai_weight(
+                                              1'200,
+                                              context.doctrine
+                                                  .cohesion_weight_basis_points))
                                      .position(target))
                            .finish());
 }
@@ -240,7 +299,8 @@ void add_formation_recovery_candidate(const PlanningContext& context,
       greatest_distance = distance;
     }
   }
-  constexpr auto recovery_distance = std::uint64_t{360'000};
+  const auto recovery_distance = static_cast<std::uint64_t>(
+      std::max(1, context.doctrine.formation_recovery_distance));
   if (straggler == nullptr || greatest_distance <= recovery_distance * recovery_distance) {
     return;
   }
@@ -250,7 +310,16 @@ void add_formation_recovery_candidate(const PlanningContext& context,
   rejoin.target = center;
   candidates.push_back(std::move(CandidateBuilder{AIAction::RejoinFormation, std::move(rejoin)}
                                      .add(AIUtilityReason::Baseline, 2'000)
-                                     .add(AIUtilityReason::FormationSpread, 5'500)
+                                     .add(AIUtilityReason::FormationSpread,
+                                          apply_ai_weight(
+                                              5'500,
+                                              context.doctrine
+                                                  .cohesion_weight_basis_points))
+                                     .add(AIUtilityReason::FormationDoctrine,
+                                          apply_ai_weight(
+                                              1'000,
+                                              context.doctrine
+                                                  .cohesion_weight_basis_points))
                                      .target(straggler->id)
                                      .position(center))
                            .finish());
@@ -275,6 +344,7 @@ std::optional<AIPlannedDecision> evaluate_micro_layer(const PlanningContext& con
   add_focus_fire_candidates(context, candidates);
   add_formation_recovery_candidate(context, candidates);
   return select_decision(AIDecisionLayer::Micro, kMicroDecisionCadence,
+                         context.doctrine,
                          std::move(candidates));
 }
 

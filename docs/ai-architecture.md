@@ -72,9 +72,10 @@ Exit gate:
 Status: implemented in the native C++ benchmark layer.
 
 - Six ordered full-match scenarios cover every non-mirror faction pairing with every faction on both spawns.
-- Twenty-one targeted fixtures per seed exercise economy-deficit recovery, blocked-opening recovery,
+- Twenty-four targeted fixtures per seed exercise economy-deficit recovery, blocked-opening recovery,
   early-rush survival, flank choice, static-danger avoidance, reinforcement staging, and retreat destinations
-  for every faction. Each fixture exposes named checks and final diagnostic state in the report.
+  for every faction, plus faction-specific acceptable-loss decisions. Each fixture exposes named checks and
+  final diagnostic state in the report.
 - Match seeds are part of simulation state and the sanitized observation. They select deterministic commander
   variants without exposing hidden state or granting resources.
 - Every applied command records source, issue and application ticks, the exact observation hash, complete
@@ -91,7 +92,7 @@ Status: implemented in the native C++ benchmark layer.
 Exit gate:
 
 - Passed: the same seed and build produce the same telemetry, command trace, checkpoints, outcome, and state
-  hash; the default two-seed suite completes 12 full matches and 42 targeted fixtures with all 192 behavior
+  hash; the default two-seed suite completes 12 full matches and 48 targeted fixtures with all 228 behavior
   checks passing inside a bounded 16,000-tick match horizon. MSVC and GCC produce byte-identical schema-v3
   reports.
 
@@ -134,8 +135,8 @@ Exit gate:
 Status: implemented in `AshenCore`.
 
 - `AIInfluenceMap` builds fixed-point cells for friendly power, observed enemy power, static danger,
-  objective value, travel cost, terror pressure, and uncertainty. Its dimensions, cells, reachability, and
-  hash are deterministic.
+  objective value, travel cost, enemy terror pressure, friendly terror, friendly ward support, observed
+  resolve vulnerability, and uncertainty. Its dimensions, cells, reachability, and hash are deterministic.
 - `PlayerObservation` exposes immutable navigation cell size and obstacle geometry because authored static
   terrain is public map knowledge. The AI still receives no `Simulation` reference or live hidden entity.
 - Visible enemies project power, terror, and turret danger. Mobile sightings retain only their last observed
@@ -164,14 +165,44 @@ Exit gate:
 
 ### Step 5: Faction, resolve, and dread behavior
 
-- Each faction has distinct utility weights, acceptable losses, formation preferences, scouting doctrine,
-  terror use, and retreat thresholds.
-- Resolve and dread alter commitment, cohesion, target choice, rally behavior, and exploitation decisions.
-- Personality changes weights and tolerances without bypassing faction identity or game rules.
+Status: implemented in `AshenCore`.
+
+- `AIDoctrineProfile` is the single deterministic contract for economy, fortification, technology,
+  composition, objectives, scouting, aggression, preservation, cohesion, dread exploitation, terror
+  resistance, ward affinity, faction-power use, acceptable losses, retreat thresholds, formation recovery,
+  and scouting commitment.
+- The Cinder Compact uses an industrial shield-line doctrine: it sustains a larger worker target, fortifies
+  earlier, preserves wounded or wavering soldiers, reforms tighter lines, and values its army-wide heal and
+  resolve restoration.
+- The Gloam Ascendancy uses a predatory hunting-pack doctrine: it accepts materially worse force ratios,
+  keeps fighting at lower health and resolve, scouts with a smaller reserve, spreads farther before
+  reforming, manifests reinforcements under pressure, and focuses observed enemies whose resolve is already
+  breaking.
+- The Elder Concord uses a ward-web doctrine: it values warded support, objectives, reconnaissance,
+  fortification, and cohesion most strongly, retreats before a poor exchange, and uses its faction power to
+  stabilize resolve and damaged structures.
+- Steady, Audacious, and Watchful temperaments are selected from the public match seed. Their adjustments are
+  deliberately narrow; tests across 128 seeds prove that no temperament can invert the faction's primary
+  identity.
+- Resolve and dread now affect combat-ready classification, engagement ratios, retreat and rally utility,
+  faction-power timing, influence destinations, and focus-fire targets. Friendly terror, friendly wards,
+  enemy terror, and last-observed resolve are derived only from `PlayerObservation`.
+- Every planned and applied decision retains faction, temperament, and a hash of the complete doctrine
+  profile. Native telemetry hashes those fields alongside all utility and influence evidence.
+- Total-attrition recovery keeps one affordable worker available for map control, banks further income for
+  combat production, and stages an understrength force on objectives until it can assault a known
+  fortification at its faction's minimum commitment size.
+- The default benchmark adds same-state acceptable-loss fixtures for all factions. Focused tests build a
+  three-bit signature from scouting commitment, disadvantaged engagement, and formation recovery without
+  reading faction labels; Ascendancy also has an explicit wavering-target exploitation fixture.
 
 Exit gate:
 
-- Blind scenario classification can distinguish the three factions by decisions, not labels or bonuses.
+- Passed: blind behavior signatures are unique for all three factions, the two-seed benchmark completes 12
+  matches and 48 deterministic fixture runs with all 228 checks passing, and Unreal executes the same
+  doctrine fingerprint and acceptable-loss choices through `Ashen.Core.FactionDoctrines`. An extended
+  eight-seed audit completes 48 matches and 192 fixtures with all 912 checks passing, no hard failures, and
+  no balance alerts.
 
 ### Step 6: Honest difficulty
 

@@ -48,7 +48,7 @@ void fixed_cases_cover_every_faction_and_spawn() {
 
 void fixed_behavior_scenarios_cover_every_faction_and_pass() {
   const auto& scenarios = benchmark::standard_fixed_scenarios();
-  CHECK(scenarios.size() == 21);
+  CHECK(scenarios.size() == 24);
   std::array<std::uint32_t, 3> faction_counts{};
   std::set<std::string> names;
   const std::vector<core::CommandTraceEntry> empty_trace;
@@ -65,7 +65,7 @@ void fixed_behavior_scenarios_cover_every_faction_and_pass() {
     CHECK(report.invalid_ai_decisions == 0);
     CHECK(report.unlinked_ai_commands == 0);
   }
-  constexpr std::array<std::uint32_t, 3> expected_counts{7, 7, 7};
+  constexpr std::array<std::uint32_t, 3> expected_counts{8, 8, 8};
   CHECK(names.size() == scenarios.size());
   CHECK(faction_counts == expected_counts);
 }
