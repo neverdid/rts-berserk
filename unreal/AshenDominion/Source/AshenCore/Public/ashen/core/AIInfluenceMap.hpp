@@ -19,6 +19,9 @@ struct AIInfluenceCell {
   std::int32_t objective_value{};
   std::int32_t travel_cost{kAIUnreachableTravelCost};
   std::int32_t terror_pressure{};
+  std::int32_t friendly_terror{};
+  std::int32_t friendly_ward{};
+  std::int32_t resolve_vulnerability{};
   std::int32_t uncertainty{};
   bool navigable{};
 

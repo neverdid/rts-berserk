@@ -2033,6 +2033,9 @@ void Simulation::update_commanders() {
       record.player = player_id;
       record.layer = decision.layer;
       record.cadence_ticks = decision.cadence_ticks;
+      record.doctrine_faction = decision.doctrine_faction;
+      record.temperament = decision.temperament;
+      record.doctrine_hash = decision.doctrine_hash;
       record.candidates = std::move(decision.candidates);
       record.selected_candidate = decision.selected_candidate;
       record.selected_action = decision.selected_action;

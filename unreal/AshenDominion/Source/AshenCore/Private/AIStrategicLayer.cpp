@@ -13,16 +13,6 @@
 namespace ashen::core::ai {
 namespace {
 
-[[nodiscard]] const Entity* first_owned(const PlanningContext& context, const EntityType type,
-                                        const bool completed_only = false) noexcept {
-  const auto found = std::ranges::find_if(
-      context.observation.owned_entities(), [=](const Entity& entity) {
-        return entity.type == type && entity.alive() &&
-               (!completed_only || !entity.under_construction);
-      });
-  return found == context.observation.owned_entities().end() ? nullptr : &*found;
-}
-
 [[nodiscard]] const Entity* first_orphaned_site(const PlanningContext& context,
                                                 const EntityType type) noexcept {
   for (const auto& site : context.observation.owned_entities()) {
@@ -84,13 +74,24 @@ namespace {
       Vec2{420 * kWorldScale, -90 * kWorldScale},
       Vec2{420 * kWorldScale, 90 * kWorldScale},
   };
+  constexpr std::array<Vec2, 8> turret_offsets = {
+      Vec2{330 * kWorldScale, 175 * kWorldScale},
+      Vec2{330 * kWorldScale, -175 * kWorldScale},
+      Vec2{275 * kWorldScale, 230 * kWorldScale},
+      Vec2{275 * kWorldScale, -230 * kWorldScale},
+      Vec2{390 * kWorldScale, 225 * kWorldScale},
+      Vec2{390 * kWorldScale, -225 * kWorldScale},
+      Vec2{240 * kWorldScale, 285 * kWorldScale},
+      Vec2{240 * kWorldScale, -285 * kWorldScale},
+  };
+  const auto attempt = static_cast<std::size_t>(
+      context.observation.tick() / kStrategicDecisionCadence);
   if (building == EntityType::Turret) {
-    const auto lateral = existing_count % 2 == 0 ? 175 : -175;
-    return {context.command_building->position.x + direction * 330 * kWorldScale,
-            context.command_building->position.y + direction * lateral * kWorldScale};
+    const auto offset =
+        turret_offsets[(attempt + existing_count) % turret_offsets.size()];
+    return {context.command_building->position.x + direction * offset.x,
+            context.command_building->position.y + offset.y};
   }
-  const auto attempt = static_cast<std::size_t>(context.observation.tick() /
-                                                kStrategicDecisionCadence);
   const auto offset = barracks_offsets[(attempt + existing_count) % barracks_offsets.size()];
   return {context.command_building->position.x + direction * offset.x,
           context.command_building->position.y + offset.y};
@@ -125,10 +126,16 @@ namespace {
   candidates.push_back(std::move(CandidateBuilder{AIAction::AssignGatherers, std::move(gather)}
                                      .add(AIUtilityReason::Baseline, 1'000)
                                      .add(AIUtilityReason::IdleWorkers,
-                                          static_cast<std::int32_t>(context.workers.size()) * 700)
+                                          apply_ai_weight(
+                                              static_cast<std::int32_t>(
+                                                  context.workers.size()) *
+                                                  700,
+                                              context.doctrine
+                                                  .economy_weight_basis_points))
                                      .position(resource->position))
                            .finish());
   return select_decision(AIDecisionLayer::Strategic, kStrategicDecisionCadence,
+                         context.doctrine,
                          std::move(candidates));
 }
 
@@ -194,10 +201,15 @@ void add_construction_candidates(const PlanningContext& context,
         candidate.add(AIUtilityReason::RequiredOpening, 20'000);
       }
       if (supply_required) {
-        candidate.add(AIUtilityReason::SupplyPressure, 14'000);
+        candidate.add(
+            AIUtilityReason::SupplyPressure,
+            apply_ai_weight(14'000, context.doctrine.economy_weight_basis_points));
       }
       if (capacity_wanted) {
-        candidate.add(AIUtilityReason::ProductionCapacity, 5'000);
+        candidate.add(AIUtilityReason::ProductionCapacity,
+                      apply_ai_weight(
+                          5'000,
+                          context.doctrine.aggression_weight_basis_points));
       }
       candidate.position(structure_position(context, EntityType::Barracks, barracks_total))
           .entity_type(EntityType::Barracks);
@@ -206,16 +218,24 @@ void add_construction_candidates(const PlanningContext& context,
   }
 
   if (turret_total == 0 && orphaned_turret == nullptr && barracks_completed > 0 &&
-      context.observation.tick() >= 800 && context.command_building != nullptr) {
+      context.observation.tick() >= context.doctrine.first_fortification_tick &&
+      context.command_building != nullptr) {
     if (const auto* builder = available_builder(context, EntityType::Turret)) {
       auto command = command_for(context.observation.player(), CommandType::Build);
       command.entities = {builder->actor};
       command.target = structure_position(context, EntityType::Turret, turret_total);
       command.building_type = EntityType::Turret;
       auto candidate = CandidateBuilder{AIAction::BuildTurret, std::move(command)};
-      candidate.add(AIUtilityReason::Baseline, 3'200);
+      candidate.add(
+          AIUtilityReason::Baseline,
+          apply_ai_weight(
+              3'200, context.doctrine.fortification_weight_basis_points));
       if (context.visible_enemy_power > context.friendly_power) {
-        candidate.add(AIUtilityReason::Outnumbered, 3'000);
+        candidate.add(
+            AIUtilityReason::Outnumbered,
+            apply_ai_weight(
+                3'000,
+                context.doctrine.preservation_weight_basis_points));
       }
       candidate.position(structure_position(context, EntityType::Turret, turret_total))
           .entity_type(EntityType::Turret);
@@ -234,7 +254,13 @@ void add_research_candidates(const PlanningContext& context,
     candidates.push_back(std::move(CandidateBuilder{AIAction::ResearchTierTwo, std::move(command)}
                                        .add(AIUtilityReason::Baseline, 2'000)
                                        .add(AIUtilityReason::TechnologyTiming,
-                                            5'500 + static_cast<std::int32_t>(context.army.size()) * 120)
+                                            apply_ai_weight(
+                                                5'500 +
+                                                    static_cast<std::int32_t>(
+                                                        context.army.size()) *
+                                                        120,
+                                                context.doctrine
+                                                    .technology_weight_basis_points))
                                        .target(capability->actor)
                                        .research(ResearchId::TierTwo))
                              .finish());
@@ -249,7 +275,13 @@ void add_research_candidates(const PlanningContext& context,
       candidates.push_back(std::move(CandidateBuilder{AIAction::ResearchDoctrine, std::move(command)}
                                          .add(AIUtilityReason::Baseline, 1'800)
                                          .add(AIUtilityReason::FactionDoctrine,
-                                              4'800 + static_cast<std::int32_t>(context.army.size()) * 100)
+                                              apply_ai_weight(
+                                                  4'800 +
+                                                      static_cast<std::int32_t>(
+                                                          context.army.size()) *
+                                                          100,
+                                                  context.doctrine
+                                                      .technology_weight_basis_points))
                                          .target(capability->actor)
                                          .research(*doctrine))
                                .finish());
@@ -259,7 +291,18 @@ void add_research_candidates(const PlanningContext& context,
 
 void add_production_candidates(const PlanningContext& context,
                                std::vector<ScoredCommand>& candidates) {
-  if (context.workers.size() < 5) {
+  const auto worker_target =
+      static_cast<std::size_t>(std::max(0, context.doctrine.worker_target));
+  const auto* harvest_target =
+      context.command_building == nullptr
+          ? nullptr
+          : nearest_usable_resource(context.observation,
+                                    context.command_building->position);
+  const auto effective_worker_target =
+      context.army.empty()
+          ? std::size_t{1}
+          : (harvest_target != nullptr ? worker_target : std::size_t{0});
+  if (context.workers.size() < effective_worker_target) {
     if (const auto* capability = first_capability(context.observation, CommandType::Train,
                                                   EntityType::Worker)) {
       auto command = command_for(context.observation.player(), CommandType::Train);
@@ -268,14 +311,21 @@ void add_production_candidates(const PlanningContext& context,
       candidates.push_back(std::move(CandidateBuilder{AIAction::TrainWorker, std::move(command)}
                                          .add(AIUtilityReason::Baseline, 2'000)
                                          .add(AIUtilityReason::EconomyTarget,
-                                              9'000 + static_cast<std::int32_t>(5 - context.workers.size()) *
-                                                          1'200)
+                                              apply_ai_weight(
+                                                  9'000 +
+                                                      static_cast<std::int32_t>(
+                                                          effective_worker_target -
+                                                          context.workers.size()) *
+                                                          1'200,
+                                                  context.doctrine
+                                                      .economy_weight_basis_points))
                                          .target(capability->actor)
                                          .entity_type(EntityType::Worker))
                                .finish());
     }
   }
 
+  const auto military_recovery = context.army.empty();
   auto armored_enemies = std::int32_t{0};
   auto enemy_structures = std::int32_t{0};
   for (const auto* enemy : context.visible_enemies) {
@@ -290,12 +340,25 @@ void add_production_candidates(const PlanningContext& context,
     command.producer = capability->actor;
     command.train_type = EntityType::Vanguard;
     auto candidate = CandidateBuilder{AIAction::TrainVanguard, std::move(command)};
-    candidate.add(AIUtilityReason::Baseline, 4'400)
-        .add(AIUtilityReason::PressureStructures, enemy_structures * 600)
+    candidate
+        .add(AIUtilityReason::Baseline,
+             apply_ai_weight(
+                 4'400, context.doctrine.vanguard_weight_basis_points))
+        .add(AIUtilityReason::PressureStructures,
+             apply_ai_weight(
+                 enemy_structures * 600,
+                 context.doctrine.aggression_weight_basis_points))
         .add(AIUtilityReason::CompositionBalance,
              context.vanguards.size() <= context.skirmishers.size() ? 1'400 : 0)
+        .add(AIUtilityReason::CombatRecovery,
+             military_recovery
+                 ? apply_ai_weight(
+                       12'000,
+                       context.doctrine.aggression_weight_basis_points)
+                 : 0)
         .add(AIUtilityReason::Baseline,
-             context.strategy % 3U == 0 ? 180 : 0)
+             context.doctrine.temperament == AITemperament::Audacious ? 180
+                                                                      : 0)
         .target(capability->actor)
         .entity_type(EntityType::Vanguard);
     candidates.push_back(std::move(candidate).finish());
@@ -307,12 +370,25 @@ void add_production_candidates(const PlanningContext& context,
     command.producer = capability->actor;
     command.train_type = EntityType::Skirmisher;
     auto candidate = CandidateBuilder{AIAction::TrainSkirmisher, std::move(command)};
-    candidate.add(AIUtilityReason::Baseline, 4'400)
-        .add(AIUtilityReason::CounterArmored, armored_enemies * 800)
+    candidate
+        .add(AIUtilityReason::Baseline,
+             apply_ai_weight(
+                 4'400, context.doctrine.skirmisher_weight_basis_points))
+        .add(AIUtilityReason::CounterArmored,
+             apply_ai_weight(
+                 armored_enemies * 800,
+                 context.doctrine.aggression_weight_basis_points))
         .add(AIUtilityReason::CompositionBalance,
              context.skirmishers.size() < context.vanguards.size() ? 1'400 : 0)
+        .add(AIUtilityReason::CombatRecovery,
+             military_recovery
+                 ? apply_ai_weight(
+                       12'000,
+                       context.doctrine.aggression_weight_basis_points)
+                 : 0)
         .add(AIUtilityReason::Baseline,
-             context.strategy % 3U == 1 ? 180 : 0)
+             context.doctrine.temperament == AITemperament::Watchful ? 180
+                                                                     : 0)
         .target(capability->actor)
         .entity_type(EntityType::Skirmisher);
     candidates.push_back(std::move(candidate).finish());
@@ -333,6 +409,7 @@ std::vector<AIPlannedDecision> evaluate_strategic_layer(const PlanningContext& c
   add_production_candidates(context, candidates);
   if (const auto macro = select_decision(AIDecisionLayer::Strategic,
                                          kStrategicDecisionCadence,
+                                         context.doctrine,
                                          std::move(candidates))) {
     decisions.push_back(*macro);
   }

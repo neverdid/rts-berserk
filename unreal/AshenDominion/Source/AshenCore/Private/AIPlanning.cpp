@@ -91,6 +91,9 @@ ScoredCommand CandidateBuilder::finish() && { return std::move(value_); }
 PlanningContext::PlanningContext(const PlayerObservation& observation_value,
                                  const bool build_tactical_map)
     : observation(observation_value),
+      doctrine(ai_doctrine_profile(observation_value.self().faction,
+                                   observation_value.match_seed(),
+                                   observation_value.player())),
       strategy(strategy_variant(observation_value.match_seed(), observation_value.player())) {
   if (build_tactical_map) {
     tactical_map_.emplace(observation_value);
@@ -111,11 +114,14 @@ PlanningContext::PlanningContext(const PlayerObservation& observation_value,
     army.push_back(&entity);
     const auto power = entity_power(entity, observation.self().faction);
     friendly_power += power;
+    friendly_terror += entity.terror;
+    friendly_ward += entity.ward;
     const auto health_basis = entity.max_hit_points <= 0
                                   ? 0
                                   : std::clamp(entity.hit_points * 10'000 / entity.max_hit_points,
                                                0, 10'000);
-    if (health_basis > 3'000 && entity.resolve > 25) {
+    if (health_basis > doctrine.critical_retreat_health_basis_points &&
+        entity.resolve > doctrine.critical_retreat_resolve) {
       ready_army.push_back(&entity);
       ready_power += power;
     }
@@ -125,15 +131,34 @@ PlanningContext::PlanningContext(const PlayerObservation& observation_value,
       skirmishers.push_back(&entity);
     }
   }
+  if (!army.empty()) {
+    std::int64_t resolve_total = 0;
+    for (const auto* unit : army) {
+      resolve_total += unit->resolve;
+    }
+    average_army_resolve =
+        static_cast<std::int32_t>(resolve_total / static_cast<std::int64_t>(army.size()));
+  }
 
+  std::int64_t enemy_resolve_total = 0;
+  std::int32_t visible_enemy_units = 0;
   for (const auto& enemy : observation.known_enemies()) {
     if (!enemy.currently_visible || enemy.hit_points <= 0) {
       continue;
     }
     visible_enemies.push_back(&enemy);
+    const auto definition = entity_definition(observation.opponent_faction(), enemy.type);
+    visible_enemy_terror += definition.terror;
+    visible_enemy_ward += definition.ward;
     if (is_army_unit(enemy.type)) {
       visible_enemy_power += enemy_power(enemy, observation.opponent_faction());
+      enemy_resolve_total += enemy.resolve;
+      ++visible_enemy_units;
     }
+  }
+  if (visible_enemy_units > 0) {
+    visible_enemy_average_resolve =
+        static_cast<std::int32_t>(enemy_resolve_total / visible_enemy_units);
   }
   attrition_commitment = observation.tick() >= kAttritionCommitmentTick &&
                          !army.empty() && ready_army.empty();
@@ -303,6 +328,7 @@ std::optional<ResearchId> faction_doctrine(const FactionId faction) noexcept {
 
 std::optional<AIPlannedDecision> select_decision(const AIDecisionLayer layer,
                                                  const Tick cadence,
+                                                 const AIDoctrineProfile& doctrine,
                                                  std::vector<ScoredCommand> candidates) {
   if (candidates.empty()) {
     return std::nullopt;
@@ -324,6 +350,9 @@ std::optional<AIPlannedDecision> select_decision(const AIDecisionLayer layer,
   AIPlannedDecision decision{};
   decision.layer = layer;
   decision.cadence_ticks = cadence;
+  decision.doctrine_faction = doctrine.faction;
+  decision.temperament = doctrine.temperament;
+  decision.doctrine_hash = ai_doctrine_hash(doctrine);
   decision.selected_candidate = selected;
   decision.selected_action = candidates[selected].candidate.action;
   decision.winning_reason = winning_reason(candidates[selected].candidate);

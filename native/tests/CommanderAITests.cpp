@@ -1,3 +1,4 @@
+#include "ashen/core/Catalog.hpp"
 #include "ashen/core/CommanderAI.hpp"
 #include "ashen/core/Simulation.hpp"
 
@@ -141,6 +142,142 @@ void strategic_layer_scores_the_opening_and_worker_allocation() {
   CHECK(build != plan.decisions.end());
   CHECK(build != plan.decisions.end() && build->winning_reason == AIUtilityReason::RequiredOpening);
   CHECK(build != plan.decisions.end() && build->command.type == CommandType::Build);
+}
+
+void strategic_layer_rebuilds_combat_before_an_exhausted_economy() {
+  for (const auto faction :
+       {FactionId::Compact, FactionId::Ascendancy, FactionId::Concord}) {
+    auto config = open_config();
+    config.player_one_faction = faction;
+    config.starting_ore = {1'000, 0};
+    Simulation simulation{config};
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                              world(180, 400)));
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Barracks,
+                                              world(340, 400)));
+    const auto worker = simulation.spawn_entity(
+        PlayerId::One, EntityType::Worker, world(260, 400));
+    static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                              world(1'420, 400)));
+    const auto resource = simulation.add_resource(world(430, 400), 1'200);
+    CHECK(simulation
+              .execute_now(Command{.player = PlayerId::One,
+                                   .type = CommandType::Gather,
+                                   .entities = {worker},
+                                   .resource = resource})
+              .ok);
+    simulation.step();
+
+    const auto plan =
+        CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+    const auto* strategic = decision_for(plan, AIDecisionLayer::Strategic);
+    CHECK(strategic != nullptr);
+    CHECK(strategic != nullptr &&
+          strategic->selected_action == AIAction::TrainVanguard);
+    CHECK(strategic != nullptr &&
+          strategic->winning_reason == AIUtilityReason::CombatRecovery);
+    CHECK(strategic != nullptr &&
+          std::ranges::none_of(
+              strategic->candidates, [](const AICandidateScore& candidate) {
+                return candidate.action == AIAction::TrainWorker;
+              }));
+    CHECK(strategic != nullptr && valid_score_trace(*strategic));
+  }
+}
+
+void strategic_layer_uses_one_worker_to_escape_total_attrition() {
+  for (const auto faction :
+       {FactionId::Compact, FactionId::Ascendancy, FactionId::Concord}) {
+    auto config = open_config();
+    config.player_one_faction = faction;
+    config.starting_ore = {
+        entity_definition(faction, EntityType::Worker).cost, 0};
+    Simulation simulation{config};
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                              world(180, 400)));
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Barracks,
+                                              world(340, 400)));
+    static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                              world(1'420, 400)));
+    simulation.step();
+
+    const auto plan =
+        CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+    const auto* strategic = decision_for(plan, AIDecisionLayer::Strategic);
+    CHECK(strategic != nullptr);
+    CHECK(strategic != nullptr &&
+          strategic->selected_action == AIAction::TrainWorker);
+    CHECK(strategic != nullptr && valid_score_trace(*strategic));
+  }
+}
+
+void tactical_layer_sends_the_recovery_worker_to_map_control() {
+  for (const auto faction :
+       {FactionId::Compact, FactionId::Ascendancy, FactionId::Concord}) {
+    auto config = open_config();
+    config.player_one_faction = faction;
+    config.starting_ore = {0, 0};
+    Simulation simulation{config};
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                              world(180, 400)));
+    const auto worker = simulation.spawn_entity(
+        PlayerId::One, EntityType::Worker, world(260, 400));
+    static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                              world(1'420, 400)));
+    static_cast<void>(simulation.add_control_point(world(700, 400)));
+    hold(simulation, PlayerId::One, {worker});
+    simulation.run(kTacticalDecisionPhase);
+
+    const auto plan =
+        CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+    const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+    CHECK(tactical != nullptr);
+    CHECK(tactical != nullptr &&
+          tactical->selected_action == AIAction::CaptureObjective);
+    CHECK(tactical != nullptr &&
+          tactical->command.entities == std::vector<EntityId>{worker});
+    CHECK(tactical != nullptr &&
+          tactical->winning_reason == AIUtilityReason::CombatRecovery);
+    CHECK(tactical != nullptr && valid_score_trace(*tactical));
+  }
+}
+
+void tactical_layer_stages_reinforcements_before_a_fortified_assault() {
+  for (const auto faction :
+       {FactionId::Compact, FactionId::Ascendancy, FactionId::Concord}) {
+    auto config = open_config();
+    config.player_one_faction = faction;
+    config.starting_ore = {0, 0};
+    Simulation simulation{config};
+    static_cast<void>(simulation.spawn_entity(PlayerId::One, EntityType::Command,
+                                              world(160, 400)));
+    const auto recovery_unit = simulation.spawn_entity(
+        PlayerId::One, EntityType::Vanguard, world(360, 400));
+    static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Command,
+                                              world(1'420, 400)));
+    static_cast<void>(simulation.spawn_entity(PlayerId::Two, EntityType::Turret,
+                                              world(550, 400)));
+    static_cast<void>(simulation.add_control_point(world(760, 650)));
+    hold(simulation, PlayerId::One, {recovery_unit});
+    simulation.run(kTacticalDecisionPhase);
+
+    const auto plan =
+        CommanderAI{PlayerId::One}.plan(simulation.observe(PlayerId::One));
+    const auto* tactical = decision_for(plan, AIDecisionLayer::Tactical);
+    CHECK(tactical != nullptr);
+    CHECK(tactical != nullptr &&
+          tactical->selected_action == AIAction::CaptureObjective);
+    CHECK(tactical != nullptr &&
+          tactical->command.entities == std::vector<EntityId>{recovery_unit});
+    CHECK(tactical != nullptr &&
+          std::ranges::any_of(
+              tactical->candidates[tactical->selected_candidate].components,
+              [](const AIUtilityComponent& component) {
+                return component.reason == AIUtilityReason::CombatRecovery &&
+                       component.score > 0;
+              }));
+    CHECK(tactical != nullptr && valid_score_trace(*tactical));
+  }
 }
 
 void tactical_layer_retreats_from_visible_superior_force() {
@@ -542,6 +679,14 @@ int main() {
            layer_cadences_are_distinct_and_human_bounded);
   run_test("strategic layer scores the opening and worker allocation",
            strategic_layer_scores_the_opening_and_worker_allocation);
+  run_test("strategic layer rebuilds combat before an exhausted economy",
+           strategic_layer_rebuilds_combat_before_an_exhausted_economy);
+  run_test("strategic layer uses one worker to escape total attrition",
+           strategic_layer_uses_one_worker_to_escape_total_attrition);
+  run_test("tactical layer sends the recovery worker to map control",
+           tactical_layer_sends_the_recovery_worker_to_map_control);
+  run_test("tactical layer stages reinforcements before a fortified assault",
+           tactical_layer_stages_reinforcements_before_a_fortified_assault);
   run_test("tactical layer retreats from visible superior force",
            tactical_layer_retreats_from_visible_superior_force);
   run_test("tactical layer flanks away from a defended side",

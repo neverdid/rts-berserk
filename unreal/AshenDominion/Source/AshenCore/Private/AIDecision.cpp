@@ -110,6 +110,12 @@ std::string_view to_string(const AIUtilityReason reason) noexcept {
       return "critical_health";
     case AIUtilityReason::LowResolve:
       return "low_resolve";
+    case AIUtilityReason::ResolvePreservation:
+      return "resolve_preservation";
+    case AIUtilityReason::DreadExploitation:
+      return "dread_exploitation";
+    case AIUtilityReason::AcceptableLosses:
+      return "acceptable_losses";
     case AIUtilityReason::WeaponCoolingDown:
       return "weapon_cooling_down";
     case AIUtilityReason::MeleePressure:
@@ -122,6 +128,12 @@ std::string_view to_string(const AIUtilityReason reason) noexcept {
       return "ranged_line_threatened";
     case AIUtilityReason::FormationSpread:
       return "formation_spread";
+    case AIUtilityReason::FormationDoctrine:
+      return "formation_doctrine";
+    case AIUtilityReason::WardSupport:
+      return "ward_support";
+    case AIUtilityReason::ScoutingDoctrine:
+      return "scouting_doctrine";
     case AIUtilityReason::FlankSafety:
       return "flank_safety";
     case AIUtilityReason::DangerAvoidance:
@@ -134,6 +146,8 @@ std::string_view to_string(const AIUtilityReason reason) noexcept {
       return "terror_avoidance";
     case AIUtilityReason::UncertaintyReduction:
       return "uncertainty_reduction";
+    case AIUtilityReason::CombatRecovery:
+      return "combat_recovery";
   }
   return "unknown";
 }

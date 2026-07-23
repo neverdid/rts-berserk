@@ -10,6 +10,7 @@
 #include "Misc/AutomationTest.h"
 #include "ProceduralMeshComponent.h"
 #include "UObject/UObjectGlobals.h"
+#include "ashen/core/AIDoctrine.hpp"
 #include "ashen/core/AIInfluenceMap.hpp"
 #include "ashen/core/Catalog.hpp"
 #include "ashen/core/CommanderAI.hpp"
@@ -256,6 +257,82 @@ bool FAshenCoreOwnedCommanderTest::RunTest(const FString &Parameters)
     }
     TestTrue(TEXT("Full bot play exercises strategic, tactical, and micro layers"),
              std::ranges::all_of(ObservedLayers, [](const bool Observed) { return Observed; }));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAshenCoreFactionDoctrinesTest, "Ashen.Core.FactionDoctrines",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAshenCoreFactionDoctrinesTest::RunTest(const FString &Parameters)
+{
+    static_cast<void>(Parameters);
+    using namespace ashen::core;
+
+    const AIDoctrineProfile Compact = ai_doctrine_profile(FactionId::Compact, 91, PlayerId::One);
+    const AIDoctrineProfile Ascendancy = ai_doctrine_profile(FactionId::Ascendancy, 91, PlayerId::One);
+    const AIDoctrineProfile Concord = ai_doctrine_profile(FactionId::Concord, 91, PlayerId::One);
+    TestTrue(TEXT("Compact remains the industrial preservation doctrine"),
+             Compact.economy_weight_basis_points > Ascendancy.economy_weight_basis_points &&
+                 Compact.preservation_weight_basis_points > Ascendancy.preservation_weight_basis_points);
+    TestTrue(TEXT("Ascendancy remains the attrition and dread doctrine"),
+             Ascendancy.aggression_weight_basis_points > Compact.aggression_weight_basis_points &&
+                 Ascendancy.dread_exploitation_weight_basis_points >
+                     Concord.dread_exploitation_weight_basis_points);
+    TestTrue(TEXT("Concord remains the warded objective doctrine"),
+             Concord.objective_weight_basis_points > Compact.objective_weight_basis_points &&
+                 Concord.ward_affinity_weight_basis_points > Compact.ward_affinity_weight_basis_points);
+
+    for (const FactionId Faction : {FactionId::Compact, FactionId::Ascendancy, FactionId::Concord})
+    {
+        SimulationConfig Config{};
+        Config.player_one_faction = Faction;
+        Config.player_two_faction = FactionId::Compact;
+        Config.seed_starting_forces = false;
+        Config.starting_ore = {1'000, 1'000};
+        Config.map_size = world(1'600, 800);
+        Config.navigation_obstacles.clear();
+        Config.match_seed = 91;
+        Simulation Match{Config};
+        static_cast<void>(Match.spawn_entity(PlayerId::One, EntityType::Command, world(180, 400)));
+        const EntityId Defender =
+            Match.spawn_entity(PlayerId::One, EntityType::Vanguard, world(360, 400));
+        static_cast<void>(Match.spawn_entity(PlayerId::Two, EntityType::Command, world(1'420, 400)));
+        const EntityId First =
+            Match.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(540, 350));
+        const EntityId Second =
+            Match.spawn_entity(PlayerId::Two, EntityType::Vanguard, world(540, 450));
+        TestTrue(TEXT("Fixture defender holds"),
+                 Match.execute_now(Command{.player = PlayerId::One,
+                                           .type = CommandType::Hold,
+                                           .entities = {Defender}})
+                     .ok);
+        TestTrue(TEXT("Fixture attackers hold"),
+                 Match.execute_now(Command{.player = PlayerId::Two,
+                                           .type = CommandType::Hold,
+                                           .entities = {First, Second}})
+                     .ok);
+        Match.run(kTacticalDecisionPhase);
+
+        const CommanderPlan Plan = CommanderAI{PlayerId::One}.plan(Match.observe(PlayerId::One));
+        const auto Tactical = std::ranges::find(Plan.decisions, AIDecisionLayer::Tactical,
+                                                &AIPlannedDecision::layer);
+        TestTrue(TEXT("Each faction resolves the loss-tolerance fixture"),
+                 Tactical != Plan.decisions.end());
+        if (Tactical == Plan.decisions.end())
+        {
+            continue;
+        }
+        const AIAction Expected =
+            Faction == FactionId::Ascendancy ? AIAction::EngageForce : AIAction::Retreat;
+        TestTrue(TEXT("Faction behavior is visible in the selected command"),
+                 Tactical->selected_action == Expected);
+        const AIDoctrineProfile ExpectedDoctrine =
+            ai_doctrine_profile(Faction, Config.match_seed, PlayerId::One);
+        TestTrue(TEXT("Unreal decisions retain their deterministic doctrine fingerprint"),
+                 Tactical->doctrine_faction == Faction &&
+                     Tactical->temperament == ExpectedDoctrine.temperament &&
+                     Tactical->doctrine_hash == ai_doctrine_hash(ExpectedDoctrine));
+    }
     return true;
 }
 

@@ -50,10 +50,17 @@ struct PlanningContext {
   std::vector<const Entity*> vanguards{};
   std::vector<const Entity*> skirmishers{};
   std::vector<const ObservedEnemy*> visible_enemies{};
+  AIDoctrineProfile doctrine{};
   std::uint64_t strategy{};
   std::int32_t friendly_power{};
   std::int32_t ready_power{};
   std::int32_t visible_enemy_power{};
+  std::int32_t average_army_resolve{100};
+  std::int32_t visible_enemy_average_resolve{100};
+  std::int32_t friendly_terror{};
+  std::int32_t friendly_ward{};
+  std::int32_t visible_enemy_terror{};
+  std::int32_t visible_enemy_ward{};
   bool attrition_commitment{};
   bool search_commitment{};
 
@@ -81,7 +88,8 @@ struct PlanningContext {
     const PlayerObservation& observation, Vec2 origin) noexcept;
 [[nodiscard]] std::optional<ResearchId> faction_doctrine(FactionId faction) noexcept;
 [[nodiscard]] std::optional<AIPlannedDecision> select_decision(
-    AIDecisionLayer layer, Tick cadence, std::vector<ScoredCommand> candidates);
+    AIDecisionLayer layer, Tick cadence, const AIDoctrineProfile& doctrine,
+    std::vector<ScoredCommand> candidates);
 
 [[nodiscard]] std::vector<AIPlannedDecision> evaluate_strategic_layer(
     const PlanningContext& context);

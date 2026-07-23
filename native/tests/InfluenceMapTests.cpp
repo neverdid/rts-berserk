@@ -81,6 +81,35 @@ void visible_static_defenses_project_danger_and_terror() {
   CHECK(threatened.terror_pressure > 0);
 }
 
+void ward_terror_and_resolve_channels_are_observation_driven() {
+  auto config = open_config();
+  config.player_one_faction = FactionId::Ascendancy;
+  config.player_two_faction = FactionId::Compact;
+  Simulation simulation{config};
+  static_cast<void>(simulation.spawn_entity(
+      PlayerId::One, EntityType::Command, world(260, 400)));
+  const auto terror_unit = simulation.spawn_entity(
+      PlayerId::One, EntityType::Vanguard, world(430, 400));
+  const auto wavering_enemy = simulation.spawn_entity(
+      PlayerId::Two, EntityType::Vanguard, world(540, 400));
+  simulation.step();
+
+  const auto observation = simulation.observe(PlayerId::One);
+  const auto enemy = std::ranges::find(
+      observation.known_enemies(), wavering_enemy, &ObservedEnemy::id);
+  CHECK(enemy != observation.known_enemies().end());
+  CHECK(enemy != observation.known_enemies().end() && enemy->resolve < 100);
+
+  const AIInfluenceMap influence{observation};
+  const auto& friendly = influence.cell_at(
+      simulation.find_entity(terror_unit)->position);
+  const auto& vulnerable = influence.cell_at(
+      simulation.find_entity(wavering_enemy)->position);
+  CHECK(friendly.friendly_terror > 0);
+  CHECK(friendly.friendly_ward > 0);
+  CHECK(vulnerable.resolve_vulnerability > 0);
+}
+
 void hidden_live_positions_cannot_change_an_influence_map() {
   auto config = open_config();
   Simulation first{config};
@@ -248,6 +277,8 @@ int main() {
            influence_grid_is_deterministic_and_navigation_aware);
   run_test("visible static defenses project danger and terror",
            visible_static_defenses_project_danger_and_terror);
+  run_test("ward, terror, and resolve channels are observation driven",
+           ward_terror_and_resolve_channels_are_observation_driven);
   run_test("hidden live positions cannot change an influence map",
            hidden_live_positions_cannot_change_an_influence_map);
   run_test("visibly cleared mobile sightings are removed",

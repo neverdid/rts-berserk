@@ -110,8 +110,14 @@ AIInfluenceMap::AIInfluenceMap(const PlayerObservation& observation, const std::
         observed_power(definition, entity.hit_points, entity.max_hit_points, entity.resolve);
     add_radial(entity.position, entity.kind == EntityKind::Building ? 2 : 3, power,
                &AIInfluenceCell::friendly_power);
-    if (definition.ward > 0) {
-      add_radial(entity.position, entity.kind == EntityKind::Building ? 3 : 2, -definition.ward * 8,
+    if (entity.terror > 0) {
+      add_radial(entity.position, entity.kind == EntityKind::Building ? 3 : 2,
+                 entity.terror * 10, &AIInfluenceCell::friendly_terror);
+    }
+    if (entity.ward > 0) {
+      add_radial(entity.position, entity.kind == EntityKind::Building ? 3 : 2,
+                 entity.ward * 8, &AIInfluenceCell::friendly_ward);
+      add_radial(entity.position, entity.kind == EntityKind::Building ? 3 : 2, -entity.ward * 8,
                  &AIInfluenceCell::terror_pressure);
     }
   }
@@ -131,6 +137,10 @@ AIInfluenceMap::AIInfluenceMap(const PlayerObservation& observation, const std::
                  &AIInfluenceCell::observed_enemy_power);
       add_radial(enemy.position, enemy.kind == EntityKind::Building ? 3 : 2, definition.terror * 10,
                  &AIInfluenceCell::terror_pressure);
+      if (enemy.kind == EntityKind::Unit) {
+        add_radial(enemy.position, 2, std::max(0, 100 - enemy.resolve) * 10,
+                   &AIInfluenceCell::resolve_vulnerability);
+      }
       if (enemy.type == EntityType::Turret) {
         const auto radius = std::max(2, definition.attack_range / cell_size_ + 1);
         add_radial(enemy.position, radius, base_power * 2, &AIInfluenceCell::static_danger);
@@ -149,6 +159,10 @@ AIInfluenceMap::AIInfluenceMap(const PlayerObservation& observation, const std::
       add_radial(enemy.position, spread,
                  decay(definition.terror * 8, age, kMobileObservationMemoryTicks),
                  &AIInfluenceCell::terror_pressure);
+      add_radial(enemy.position, spread,
+                 decay(std::max(0, 100 - enemy.resolve) * 8, age,
+                       kMobileObservationMemoryTicks),
+                 &AIInfluenceCell::resolve_vulnerability);
       add_radial(enemy.position, spread, decay(300, age, kMobileObservationMemoryTicks),
                  &AIInfluenceCell::uncertainty);
       continue;
@@ -334,6 +348,9 @@ void AIInfluenceMap::finalize_hash() noexcept {
     hash_integral(value, cell_value.objective_value);
     hash_integral(value, cell_value.travel_cost);
     hash_integral(value, cell_value.terror_pressure);
+    hash_integral(value, cell_value.friendly_terror);
+    hash_integral(value, cell_value.friendly_ward);
+    hash_integral(value, cell_value.resolve_vulnerability);
     hash_integral(value, cell_value.uncertainty);
     hash_integral(value, cell_value.navigable);
   }

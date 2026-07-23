@@ -20,6 +20,7 @@ enum class FixedScenarioId : std::uint8_t {
   TacticalDangerAvoidance,
   TacticalReinforcement,
   TacticalRetreatDestination,
+  FactionLossTolerance,
 };
 
 struct BenchmarkCase {

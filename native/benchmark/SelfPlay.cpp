@@ -111,6 +111,9 @@ void hash_ai_candidate(std::uint64_t& hash, const core::AICandidateScore& candid
     hash_i32(hash, sample.cell.objective_value);
     hash_i32(hash, sample.cell.travel_cost);
     hash_i32(hash, sample.cell.terror_pressure);
+    hash_i32(hash, sample.cell.friendly_terror);
+    hash_i32(hash, sample.cell.friendly_ward);
+    hash_i32(hash, sample.cell.resolve_vulnerability);
     hash_i32(hash, sample.cell.uncertainty);
     hash_bool(hash, sample.cell.navigable);
   }
@@ -822,6 +825,12 @@ const std::vector<FixedScenarioCase>& standard_fixed_scenarios() {
        32},
       {FixedScenarioId::TacticalRetreatDestination,
        "tactical-retreat-destination__concord", core::FactionId::Concord, 32},
+      {FixedScenarioId::FactionLossTolerance,
+       "faction-loss-tolerance__compact", core::FactionId::Compact, 32},
+      {FixedScenarioId::FactionLossTolerance,
+       "faction-loss-tolerance__ascendancy", core::FactionId::Ascendancy, 32},
+      {FixedScenarioId::FactionLossTolerance,
+       "faction-loss-tolerance__concord", core::FactionId::Concord, 32},
   };
   return scenarios;
 }
@@ -853,6 +862,9 @@ std::uint64_t ai_decision_trace_hash(
     hash_byte(hash, static_cast<std::uint8_t>(record.player));
     hash_byte(hash, static_cast<std::uint8_t>(record.layer));
     hash_u64(hash, record.cadence_ticks);
+    hash_byte(hash, static_cast<std::uint8_t>(record.doctrine_faction));
+    hash_byte(hash, static_cast<std::uint8_t>(record.temperament));
+    hash_u64(hash, record.doctrine_hash);
     hash_u64(hash, static_cast<std::uint64_t>(record.candidates.size()));
     for (const auto& candidate : record.candidates) {
       hash_ai_candidate(hash, candidate);
@@ -921,6 +933,7 @@ struct DecisionAudit {
     auto valid = decision.id != 0 && decision.observation_hash != 0 &&
                  decision.cadence_ticks == core::ai_decision_cadence(decision.layer) &&
                  core::ai_decision_due(decision.layer, decision.observation_tick) &&
+                 decision.doctrine_hash != 0 &&
                  !decision.candidates.empty() &&
                  decision.selected_candidate < decision.candidates.size() &&
                  decision.command.player == decision.player &&
@@ -1062,7 +1075,8 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
   return id == FixedScenarioId::TacticalFlankChoice ||
          id == FixedScenarioId::TacticalDangerAvoidance ||
          id == FixedScenarioId::TacticalReinforcement ||
-         id == FixedScenarioId::TacticalRetreatDestination;
+         id == FixedScenarioId::TacticalRetreatDestination ||
+         id == FixedScenarioId::FactionLossTolerance;
 }
 
 [[nodiscard]] ScenarioExecution execute_fixed_scenario(const FixedScenarioCase& scenario,
@@ -1145,7 +1159,7 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
                                                 core::world(360, 440)));
       static_cast<void>(simulation.spawn_entity(core::PlayerId::Two,
                                                 core::EntityType::Turret,
-                                                core::world(700, 400)));
+                                                core::world(620, 400)));
       static_cast<void>(simulation.add_control_point(core::world(1'300, 400)));
     } else if (scenario.id == FixedScenarioId::TacticalReinforcement) {
       const auto first = simulation.spawn_entity(core::PlayerId::One,
@@ -1169,6 +1183,26 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
           simulation.execute_now(core::Command{.player = core::PlayerId::One,
                                                .type = core::CommandType::Hold,
                                                .entities = {reinforcement}}));
+    } else if (scenario.id == FixedScenarioId::FactionLossTolerance) {
+      const auto defender = simulation.spawn_entity(
+          core::PlayerId::One, core::EntityType::Vanguard,
+          core::world(360, 400));
+      const auto first = simulation.spawn_entity(
+          core::PlayerId::Two, core::EntityType::Vanguard,
+          core::world(540, 350));
+      const auto second = simulation.spawn_entity(
+          core::PlayerId::Two, core::EntityType::Vanguard,
+          core::world(540, 450));
+      static_cast<void>(
+          simulation.execute_now(core::Command{
+              .player = core::PlayerId::One,
+              .type = core::CommandType::Hold,
+              .entities = {defender}}));
+      static_cast<void>(
+          simulation.execute_now(core::Command{
+              .player = core::PlayerId::Two,
+              .type = core::CommandType::Hold,
+              .entities = {first, second}}));
     } else {
       const auto defender = simulation.spawn_entity(core::PlayerId::One,
                                                     core::EntityType::Vanguard,
@@ -1296,12 +1330,25 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
                            "The engagement must flank below the "
                            "turret-defended upper approach.");
       } else if (scenario.id == FixedScenarioId::TacticalDangerAvoidance) {
+        const auto observation = simulation.observe(core::PlayerId::One);
+        const auto threat_observed = std::ranges::any_of(
+            observation.known_enemies(), [](const core::ObservedEnemy& enemy) {
+              return enemy.currently_visible &&
+                     enemy.type == core::EntityType::Turret;
+            });
+        add_scenario_check(
+            report, "static_threat_observed", threat_observed,
+            "The fixture must reveal its turret through ordinary faction vision.");
         add_scenario_check(
             report, "static_danger_avoided",
-            decision->selected_action == core::AIAction::CaptureObjective &&
+            threat_observed &&
+                decision->selected_action == core::AIAction::CaptureObjective &&
                 std::abs(command_target.y - core::world(0, 400).y) >=
                     core::kAIInfluenceCellSize / 2,
-            "The objective approach must leave the defended center line.");
+            "The objective approach must leave the defended center line; "
+            "selected target=(" +
+                std::to_string(command_target.x) + "," +
+                std::to_string(command_target.y) + ").");
       } else if (scenario.id == FixedScenarioId::TacticalReinforcement) {
         add_scenario_check(report, "reinforcement_staged_safely",
                            decision->selected_action ==
@@ -1309,6 +1356,25 @@ void add_scenario_check(FixedScenarioReport& report, std::string id, const bool 
                                command_target.y > core::world(0, 400).y,
                            "Reinforcements must stage on the protected side of "
                            "the active front.");
+      } else if (scenario.id == FixedScenarioId::FactionLossTolerance) {
+        const auto expected =
+            scenario.faction == core::FactionId::Ascendancy
+                ? core::AIAction::EngageForce
+                : core::AIAction::Retreat;
+        const auto doctrine = core::ai_doctrine_profile(
+            scenario.faction, seed, core::PlayerId::One);
+        add_scenario_check(
+            report, "faction_loss_tolerance",
+            decision->selected_action == expected,
+            "The faction must apply its own acceptable-loss threshold to "
+            "the same disadvantaged fight.");
+        add_scenario_check(
+            report, "faction_doctrine_fingerprint",
+            decision->doctrine_faction == scenario.faction &&
+                decision->temperament == doctrine.temperament &&
+                decision->doctrine_hash == core::ai_doctrine_hash(doctrine),
+            "The tactical choice must retain the deterministic doctrine "
+            "that produced it.");
       } else {
         const auto accepted_retreat = std::ranges::any_of(
             simulation.command_trace(),

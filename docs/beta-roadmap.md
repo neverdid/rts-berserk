@@ -80,6 +80,16 @@ unit required for a standard match.
 
 ## 5. Raise AI to beta quality
 
+Deterministic AI foundation delivered:
+
+- Authoritative fog-limited observations and shared C++ commander ownership
+- Auditable self-play, fixed scenario benchmarks, and byte-identical cross-platform reports
+- Independent strategic, tactical, and micro utility layers with influence-map positioning
+- Three faction doctrine profiles with bounded temperament variance, asymmetric scouting, formations,
+  acceptable losses, resolve preservation, ward use, and dread exploitation
+- Attrition recovery that preserves a one-worker economic floor, rebuilds combat before surplus labor, and
+  stages understrength forces away from known fortifications
+
 - Scouting, information memory, build-order planning, expansion, harassment, retreat, focus fire, and
   terrain-aware engagements
 - Distinct personalities and difficulty levels without hidden resource cheating at standard difficulty

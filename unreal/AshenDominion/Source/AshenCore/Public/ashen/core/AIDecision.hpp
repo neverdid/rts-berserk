@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ashen/core/AIDoctrine.hpp"
 #include "ashen/core/AIInfluenceMap.hpp"
 #include "ashen/core/Types.hpp"
 
@@ -62,18 +63,25 @@ enum class AIUtilityReason : std::uint8_t {
   Outnumbered,
   CriticalHealth,
   LowResolve,
+  ResolvePreservation,
+  DreadExploitation,
+  AcceptableLosses,
   WeaponCoolingDown,
   MeleePressure,
   VulnerableTarget,
   HighThreatTarget,
   RangedLineThreatened,
   FormationSpread,
+  FormationDoctrine,
+  WardSupport,
+  ScoutingDoctrine,
   FlankSafety,
   DangerAvoidance,
   FriendlySupport,
   TravelEfficiency,
   TerrorAvoidance,
   UncertaintyReduction,
+  CombatRecovery,
 };
 
 enum class AICommandStatus : std::uint8_t { Queued, Accepted, Rejected };
@@ -135,6 +143,9 @@ struct AICandidateScore {
 struct AIPlannedDecision {
   AIDecisionLayer layer{AIDecisionLayer::Strategic};
   Tick cadence_ticks{kStrategicDecisionCadence};
+  FactionId doctrine_faction{FactionId::Compact};
+  AITemperament temperament{AITemperament::Steady};
+  std::uint64_t doctrine_hash{};
   std::vector<AICandidateScore> candidates{};
   std::size_t selected_candidate{};
   AIAction selected_action{AIAction::AssignGatherers};
@@ -157,6 +168,9 @@ struct AIDecisionRecord {
   PlayerId player{PlayerId::One};
   AIDecisionLayer layer{AIDecisionLayer::Strategic};
   Tick cadence_ticks{kStrategicDecisionCadence};
+  FactionId doctrine_faction{FactionId::Compact};
+  AITemperament temperament{AITemperament::Steady};
+  std::uint64_t doctrine_hash{};
   std::vector<AICandidateScore> candidates{};
   std::size_t selected_candidate{};
   AIAction selected_action{AIAction::AssignGatherers};
